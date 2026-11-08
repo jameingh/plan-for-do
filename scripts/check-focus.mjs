@@ -44,6 +44,13 @@ async function point(sel, text, nth = 0) {
   return pt;
 }
 async function click(sel, text, nth = 0, wait = 420) {
+  // 底部浮条是 fixed 的，会盖住卡片底部那颗「开始专注」。
+  // 上一步的报错浮条还没消就点，点击落在浮条上，表现成「按钮点了没反应」
+  // ——CI 上比本机慢一点就会踩到（2026-11-08 番茄那一段就是这么假失败的）。
+  for (let i = 0; i < 16; i++) {
+    if ((await evalJs(`document.querySelectorAll(".toast").length`)) === 0) break;
+    await sleep(250);
+  }
   const pt = await point(sel, text, nth);
   for (const t of ["mousePressed", "mouseReleased"]) {
     await send("Input.dispatchMouseEvent", { type: t, x: pt.x, y: pt.y, button: "left", clickCount: 1, buttons: t === "mousePressed" ? 1 : 0 });
