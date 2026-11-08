@@ -348,6 +348,47 @@ await click(".fc-arrow", "", 0, 700);            // 页面上第一颗箭头 = �
 check("日统计左箭头翻到昨天", (await txt(".fc-range")).includes(`${Number(addDays(T, -1).slice(5, 7))}月${Number(addDays(T, -1).slice(8, 10))}日`), await txt(".fc-range"));
 await click(".fc-now", "回到本期", 0, 700);
 
+console.log("\n=== 专注：跨设备互斥（接管 / 放弃）===");
+// 造一条「另一台设备开着」的记录：跨设备互斥靠记录的 deviceId 判断归属。
+// 写入用可写连接（自检实例的库是 WAL，允许第二个进程写），然后切走再切回，
+// 让 FocusPage 重新挂载、重新问一次 FocusCurrent。
+{
+  const wdb = new DatabaseSync(`${DATA}/planfordo.db`);
+  const nowIso = new Date().toISOString().replace(/\.\d+Z$/, ".000Z");
+  const rec = {
+    id: "f-foreign-check", type: 1, status: 1, source: 1, deviceId: "device-B",
+    day: T, startAt: nowIso, accumSec: 0, roundBase: 0, segmentStart: nowIso,
+    targetSec: 0, actualSec: 0, restSec: 0, cycles: 0, phase: "focus",
+    events: [{ at: nowIso, kind: "start", label: "开始专注" }],
+    createdAt: nowIso, updatedAt: nowIso,
+  };
+  // 先把本机未结束的清掉，免得它先被 FocusCurrent 选中
+  wdb.prepare("update entity set deleted_at=? where kind='focus' and status<>3 and deleted_at=''").run(nowIso);
+  wdb.prepare(`insert into entity(kind,id,updated_at,deleted_at,day,parent,status,sort,data)
+    values('focus','f-foreign-check',?,'',?,'',1,0,?)`).run(nowIso, T, JSON.stringify(rec));
+  wdb.close();
+  await click(".rail-item", "清单", 0, 500);
+  await click(".rail-item", "专注", 0, 900);
+  const modalText = await txt(".modal");
+  check("另一台设备的进行中专注 → 先问接管/放弃", modalText.includes("另一台设备") && modalText.includes("device-B"), modalText.slice(0, 80));
+  check("三个选择：先不动 / 放弃那一次 / 接管",
+    (await num(".modal .btn")) === 3 && modalText.includes("放弃那一次"), await txt(".modal"));
+  await click(".modal .btn", "接管", 0, 1000);
+  check("接管后关弹窗并进入沉浸页", (await num(".modal")) === 0 && (await num(".fc-immersive")) === 1);
+  const wdb2 = new DatabaseSync(`${DATA}/planfordo.db`, { readOnly: true });
+  const local = wdb2.prepare("select value from meta where key='device.id'").get()?.value ?? "";
+  const row = wdb2.prepare("select data from entity where kind='focus' and id='f-foreign-check'").get();
+  wdb2.close();
+  const saved = row ? JSON.parse(row.data) : null;
+  check("接管写进了库：deviceId 改成本机并留了 takeover 事件",
+    !!saved && saved.deviceId === local && saved.events?.some((e) => e.kind === "takeover"),
+    JSON.stringify(saved && { dev: saved.deviceId, ev: saved.events?.map((e) => e.kind) }).slice(0, 140));
+  // 收尾：把这条测试记录放弃掉，别留给后面的断言
+  await click(".fc-big-btn", "结束", 0, 500);
+  await click(".fc-end-btn", "放弃", 0, 900);
+  await sleep(400);
+}
+
 console.log("\n=== 专注：收尾 ===");
 await click(".gtab", "正计时", 0, 700);
 check("回到子模块，界面正常", await has(".fc-start") && (await num(".fc-immersive")) === 0);

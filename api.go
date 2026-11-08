@@ -1273,6 +1273,16 @@ func (a *API) FocusRecover(focusID string) (*model.FocusRecord, error) {
 	return out, err
 }
 
+// FocusTakeover 把另一台设备的进行中专注接到本机（跨设备互斥的「接管」那一半）。
+// 同步是记录级的，两台设备都会看见同一个「进行中」；不接管就自动恢复会各跑一次。
+func (a *API) FocusTakeover(focusID string) (*model.FocusRecord, error) {
+	out, err := a.svc.FocusTakeover(context.Background(), focusID)
+	if err == nil {
+		a.changed("focus")
+	}
+	return out, err
+}
+
 // Focus 单读一条（专注详情页），带回现取的关联任务名。
 func (a *API) Focus(focusID string) (*service.FocusListItem, error) {
 	return a.svc.FocusGet(context.Background(), focusID)

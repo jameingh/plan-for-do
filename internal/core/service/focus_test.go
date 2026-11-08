@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -550,4 +551,76 @@ func containsString(xs []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// TestFocusForeignSessionIsTakenOverNotResumed 钉住跨设备互斥的口径：
+// 另一台设备开着的专注，本机不能直接接着走——要么接管（改归属并停到暂停），要么放弃。
+func TestFocusForeignSessionIsTakenOverNotResumed(t *testing.T) {
+	a, ctx := newApp(t)
+	base := at(t, a.Today(), 9, 0)
+	putFocus(t, a, ctx, &model.FocusRecord{
+		ID: "f-other", Type: model.FocusCountUp, Status: model.FocusRunning, Source: model.FocusLive,
+		DeviceID: "device-B", Day: a.Today(), StartAt: base, SegmentStart: base,
+		Events: []model.FocusEvent{{At: base, Kind: "start", Label: "开始专注"}},
+	})
+
+	cur, err := a.FocusCurrent(ctx)
+	if err != nil {
+		t.Fatalf("FocusCurrent: %v", err)
+	}
+	if cur == nil || cur.ID != "f-other" {
+		t.Fatalf("应看到另一台设备那一条：%+v", cur)
+	}
+	if !a.foreign(cur) {
+		t.Error("device-B 的记录应被判定为「另一台设备的」")
+	}
+	// 老记录（没有 deviceId）必须按本机处理，不能升级后被判成别人的
+	if a.foreign(&model.FocusRecord{DeviceID: ""}) {
+		t.Error("空 DeviceID 应按本机处理")
+	}
+
+	// 另开一个：必须被挡，而且错误里点出「另一台设备」
+	_, err = a.FocusStart(ctx, FocusStartRequest{Type: model.FocusCountUp})
+	if err == nil || !strings.Contains(err.Error(), "另一台设备") {
+		t.Fatalf("应拒绝并说明是另一台设备，得 %v", err)
+	}
+
+	// 接管：归属改成本机、停在暂停态、记一笔事件
+	got, err := a.FocusTakeover(ctx, "f-other")
+	if err != nil {
+		t.Fatalf("FocusTakeover: %v", err)
+	}
+	if got.DeviceID != a.DeviceID() {
+		t.Errorf("接管后归属 = %q，应为本机 %q", got.DeviceID, a.DeviceID())
+	}
+	if got.Status != model.FocusPaused {
+		t.Errorf("接管后应停在暂停态，得 %d", got.Status)
+	}
+	if got.SegmentStart != "" {
+		t.Error("接管后不该还在走表：那正是两台设备同时计时的根源")
+	}
+	kinds := focusEventKinds(getRec(t, a, ctx, "f-other"))
+	if !containsStr(kinds, "takeover") {
+		t.Errorf("接管要留一笔事件：%v", kinds)
+	}
+	// 接管之后就能正常开新的（说明互斥状态没卡死）
+	if _, err := a.FocusFinish(ctx, "f-other", false); err != nil {
+		t.Fatalf("接管后放弃: %v", err)
+	}
+	if _, err := a.FocusStart(ctx, FocusStartRequest{Type: model.FocusCountUp}); err != nil {
+		t.Fatalf("清掉之后应能开新的专注：%v", err)
+	}
+}
+
+// TestFocusStartRecordsDevice 是「归属从哪来」的断言：开始专注必须写设备 ID，
+// 否则同步过去对面永远只能看到一条无主的进行中记录。
+func TestFocusStartRecordsDevice(t *testing.T) {
+	a, ctx := newApp(t)
+	r, err := a.FocusStart(ctx, FocusStartRequest{Type: model.FocusCountUp})
+	if err != nil {
+		t.Fatalf("FocusStart: %v", err)
+	}
+	if r.DeviceID != a.DeviceID() || r.DeviceID == "" {
+		t.Errorf("开始专注要写设备 ID，得 %q（本机 %q）", r.DeviceID, a.DeviceID())
+	}
 }

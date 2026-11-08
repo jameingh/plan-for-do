@@ -34,7 +34,7 @@ type TaskByTab = Record<Tab, FocusTask | null>;
 const emptyTasks = (): TaskByTab => ({ up: null, pomo: null, down: null, data: null });
 
 export function FocusPage() {
-  const { booted } = useApp();
+  const { booted, boot } = useApp();
   const [tab, setTab] = useState<Tab>("up");
   const [tasks, setTasks] = useState<TaskByTab>(emptyTasks);
   const [downMin, setDownMin] = useState(25);      // 倒计时默认 25 分
@@ -48,6 +48,10 @@ export function FocusPage() {
   const [settle, setSettle] = useState<FocusRecord | null>(null);
   const [detail, setDetail] = useState<string | null>(null);
   const [running, setRunning] = useState<FocusRecord | null>(null);
+  // 另一台设备开着的那一次：不自动恢复，先问「接管 / 放弃」——
+  // 直接恢复会让两台机器各跑一次，同步后留下两条半截记录。
+  const [foreign, setForeign] = useState<FocusRecord | null>(null);
+  const foreignOf = (r: FocusRecord) => !!r.deviceId && !!boot?.deviceId && r.deviceId !== boot.deviceId;
 
   // 重启回到那一次：开机查到未结束的记录就进沉浸页；走表状态先让内核按宽限期补一次再暂停。
   useEffect(() => {
@@ -56,6 +60,10 @@ export function FocusPage() {
     api.FocusCurrent().then(async (r) => {
       if (dead || !r) return;
       setRunning(r);
+      if (foreignOf(r)) {
+        setForeign(r);
+        return; // 等用户选「接管」或「放弃」，别替另一台设备继续走表
+      }
       // 走表状态先让内核按宽限期补一次（崩溃期间那段时间不算专注）
       const rec = r.status === 1 ? await api.FocusRecover(r.id).catch(() => r) : r;
       const item = rec ? await api.Focus(rec.id).catch(() => null) : null;
@@ -81,15 +89,43 @@ export function FocusPage() {
       setSession({ record: r, task: task ?? null });
       setRunning(r);
     }).catch(async (e) => {
-      // 已经有一条在进行中：不弹错误糊用户，直接把那一次捞出来接着走
-      if (!(e instanceof Error) || !e.message.includes("已有专注进行中")) { toastErr(e); return; }
+      // 已经有一条在进行中：不弹错误糊用户，直接把那一次捞出来接着走；
+      // 但「另一台设备的」要先问接管还是放弃，不能替别人继续。
+      const msg = e instanceof Error ? e.message : "";
+      if (!msg.includes("已有专注进行中") && !msg.includes("另一台设备")) { toastErr(e); return; }
       const cur = await api.FocusCurrent().catch(() => null);
       if (!cur) return;
-      const item = await api.Focus(cur.id).catch(() => null);
       setRunning(cur);
+      if (foreignOf(cur)) { setForeign(cur); return; }
+      const item = await api.Focus(cur.id).catch(() => null);
       setSession({ record: cur, task: taskFromItem(cur, item) });
     });
   }, [typeOf, tab, downMin, pomoMin, task, plan]);
+
+  async function takeOverForeign() {
+    if (!foreign) return;
+    try {
+      const r = await api.FocusTakeover(foreign.id);
+      const rec = (r.status === 1 ? await api.FocusRecover(r.id).catch(() => r) : r) ?? r;
+      const item = await api.Focus(rec.id).catch(() => null);
+      setForeign(null);
+      setRunning(rec);
+      setSession({ record: rec, task: taskFromItem(rec, item) });
+    } catch (e) {
+      toastErr(e);
+    }
+  }
+
+  async function dropForeign() {
+    if (!foreign) return;
+    try {
+      await api.FocusFinish(foreign.id, false);
+      setForeign(null);
+      setRunning(null);
+    } catch (e) {
+      toastErr(e);
+    }
+  }
 
   if (detail) {
     // 详情页里删掉这条之后，结算页就不该再待着——返回时探一次记录还在不在，没了就把结算页一起收掉。
@@ -228,6 +264,24 @@ export function FocusPage() {
       )}
 
       {showPlan && <PlanModal plan={plan} onClose={() => setShowPlan(false)} onSave={setPlan} />}
+
+      {foreign && (
+        <Modal title="另一台设备还有一次专注没结束" onClose={() => setForeign(null)} keepOnMask>
+          <p className="muted small">
+            设备 {foreign.deviceId?.slice(0, 8) || "未知"} 在 {foreign.startAt ? foreign.startAt.slice(11, 16) : "—"} 开始了
+            {FOCUS_TYPE_LABEL[foreign.type] ?? "专注"}，还没结束。
+          </p>
+          <p className="muted small">
+            接管 = 把那一次接到这台机器继续（原设备会停在暂停，避免两台同时走表）；
+            放弃 = 结束并删掉那一次，不留记录。
+          </p>
+          <div className="field-row" style={{ justifyContent: "flex-end" }}>
+            <button className="btn" onClick={() => setForeign(null)}>先不动</button>
+            <button className="btn" onClick={() => void dropForeign()}>放弃那一次</button>
+            <button className="btn primary" onClick={() => void takeOverForeign()}>接管</button>
+          </div>
+        </Modal>
+      )}
     </>
   );
 }

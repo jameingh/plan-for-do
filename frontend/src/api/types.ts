@@ -819,6 +819,8 @@ export interface FocusPlan {
 
 export interface FocusRecord {
   id: string;
+  /** 开始这次专注的设备。空串是升级前的老记录，界面按本机处理 */
+  deviceId?: string;
   type: FocusType;
   status: FocusStatus;
   source: FocusSource;

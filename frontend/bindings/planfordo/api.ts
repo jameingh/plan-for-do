@@ -284,6 +284,14 @@ export function FocusStat(req: service$0.FocusStatRequest): $CancellablePromise<
 }
 
 /**
+ * FocusTakeover 把另一台设备的进行中专注接到本机（跨设备互斥的「接管」那一半）。
+ * 同步是记录级的，两台设备都会看见同一个「进行中」；不接管就自动恢复会各跑一次。
+ */
+export function FocusTakeover(focusID: string): $CancellablePromise<model$0.FocusRecord | null> {
+    return $Call.ByID(534338449, focusID);
+}
+
+/**
  * FocusTick 是计时心跳：把走满的一段折进累计。它不 emit changed——
  * 心跳每 30 秒一次，让界面跟着重取一遍数据毫无意义。
  */

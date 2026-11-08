@@ -186,6 +186,14 @@ export interface FocusRecord {
      * FocusLive / FocusManual
      */
     "source": number;
+
+    /**
+     * DeviceID 是开始这次专注的设备。跨设备互斥靠它：
+     * 同步之后另一台设备看到「进行中」的记录，能判断出「这不是我开的」，
+     * 于是给的是「接管 / 放弃」而不是闷头自动恢复。
+     * 老记录没有这个字段（空串）——当作「本机」处理，不能因为升级就把进行中的专注弄丢。
+     */
+    "deviceId"?: string;
     "day": Day;
 
     /**

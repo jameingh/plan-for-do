@@ -230,7 +230,9 @@ type ConditionalChannel interface {
    不清库；CLI `plando export/import` + 设置页「备份与恢复」）。
    **通道本身仍然明文**——那是刻意的：多维表格那侧要能读才有多维表格的意义。
    要不要再给 WebDAV/云盘快照加一层 AES-GCM、以及 CSV 导出，仍待定。
-6. **多清单本 UI**：内核已支持 `model.List`（默认本「全部」），界面上要不要真分出多本？
+6. **专注的跨设备互斥**（2026-11-08 已做）：记录带 `deviceId`，另一台设备的进行中记录
+   不自动恢复，界面给「接管 / 放弃」；接管会停在暂停态并留事件。见 docs/design-reference.md 第 28 节。
+7. **多清单本 UI**：内核已支持 `model.List`（默认本「全部」），界面上要不要真分出多本？
    现有分组（日期/分类/四象限）已覆盖大部分需求。
-7. **macOS 分发**：Go 二进制已能在 Windows 用 `-tags purego` 交叉编译（第 10 节），但 .app 打包、签名与公证必须在 Mac 上做。
+8. **macOS 分发**：Go 二进制已能在 Windows 用 `-tags purego` 交叉编译（第 10 节），但 .app 打包、签名与公证必须在 Mac 上做。
 

@@ -271,6 +271,9 @@ func (a *App) FocusStart(ctx context.Context, req FocusStartRequest) (*model.Foc
 		return nil, err
 	}
 	if cur := focusUnfinished(all); cur != nil {
+		if a.foreign(cur) {
+			return nil, fmt.Errorf("service: 另一台设备（%s）还有一次未结束的专注，请先接管或放弃", shortDevice(cur.DeviceID))
+		}
 		return nil, fmt.Errorf("service: 已有专注进行中，请先结束或放弃")
 	}
 	at, err := a.now(ctx)
@@ -279,7 +282,8 @@ func (a *App) FocusStart(ctx context.Context, req FocusStartRequest) (*model.Foc
 	}
 	r := &model.FocusRecord{
 		ID: newID(), Type: req.Type, Status: model.FocusRunning, Source: model.FocusLive,
-		Day: a.Today(), StartAt: at, SegmentStart: at, TargetSec: req.TargetSec,
+		DeviceID: a.DeviceID(),
+		Day:      a.Today(), StartAt: at, SegmentStart: at, TargetSec: req.TargetSec,
 		ItemID: itemID, HabitID: habitID,
 		Events:    []model.FocusEvent{focusEvent(at, "start", "开始专注")},
 		CreatedAt: at, UpdatedAt: at,
@@ -499,6 +503,61 @@ func (a *App) FocusCurrent(ctx context.Context) (*model.FocusRecord, error) {
 		return cur, nil
 	}
 	return nil, nil
+}
+
+// foreign 判断这条记录是不是「另一台设备开的」。
+// 空 DeviceID 是升级前的老记录，按本机算——不能把用户正在跑的专注判成别人的。
+func (a *App) foreign(r *model.FocusRecord) bool {
+	return r != nil && r.DeviceID != "" && r.DeviceID != a.DeviceID()
+}
+
+// shortDevice 只取设备 ID 的前 8 位给人看：完整 ID 又长又没用，
+// 界面上能区分「不是我这台」就够了。
+func shortDevice(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	if id == "" {
+		return "未知设备"
+	}
+	return id
+}
+
+// FocusTakeover 把另一台设备的进行中专注接过来。
+//
+// 为什么需要：同步是记录级的，两台设备都可能看见那条「进行中」。
+// 如果界面直接自动恢复，用户会在两台机器上各跑一次，最后留下两条半截记录；
+// 所以先问一句，接管 = 把归属改成这台设备并记一笔事件，放弃 = FocusFinish(save=false)。
+//
+// 本机自己的记录也允许接管（幂等），省得界面为两种情况写两条路。
+func (a *App) FocusTakeover(ctx context.Context, id string) (*model.FocusRecord, error) {
+	r, err := loadOne[model.FocusRecord](a, ctx, store.KindFocus, id)
+	if err != nil {
+		return nil, err
+	}
+	if r.Status == model.FocusDone {
+		return nil, fmt.Errorf("service: 这次专注已经结束了，不能接管")
+	}
+	at, err := a.now(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if r.DeviceID == a.DeviceID() {
+		return r, nil // 已经是本机的，直接当成功
+	}
+	from := shortDevice(r.DeviceID)
+	r.DeviceID = a.DeviceID()
+	// 接管过来一律停在暂停态：原设备可能还在走表，两边同时「进行中」正是要避免的。
+	if r.Status == model.FocusRunning {
+		r.AccumSec += focusFold(r, at)
+		r.SegmentStart = ""
+		r.Status = model.FocusPaused
+	}
+	r.Events = append(r.Events, focusEvent(at, "takeover", "从设备 "+from+" 接管"))
+	if err := a.saveFocus(ctx, r, at); err != nil {
+		return nil, err
+	}
+	return r, nil
 }
 
 // FocusRecover 是「重启回到那一次」的规则：崩溃/被关掉期间的时间不算专注，

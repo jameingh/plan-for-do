@@ -177,6 +177,8 @@ export interface Kernel {
   FocusFinish(focusID: string, save: boolean): Promise<import("./types").FocusRecord | null>;
   /** 进行中的那一次；没有返回 null */
   FocusCurrent(): Promise<import("./types").FocusRecord | null>;
+  /** 跨设备互斥：把另一台设备的进行中专注接到本机 */
+  FocusTakeover(focusID: string): Promise<import("./types").FocusRecord>;
   /** 重启回到那一次：崩溃期间不计时长，最多补一个心跳周期 */
   FocusRecover(focusID: string): Promise<import("./types").FocusRecord | null>;
   /** 单读一条，带回现取的关联任务名（名字属于事项/习惯，不在记录里存副本） */

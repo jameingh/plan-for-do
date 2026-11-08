@@ -260,6 +260,23 @@ export function createFocusAPI(db: FocusDB, h: Helpers) {
       return cur ? { ...cur } : null;
     }),
 
+    FocusTakeover: (id: string) =>
+      call(() => {
+        const r = find(id);
+        if (r.status === STATUS_DONE) throw err("service: 这次专注已经结束了，不能接管");
+        const at = now();
+        if (r.status === STATUS_RUNNING) {
+          // 与原设备可能仍在走表：先按当前时刻折一次，再停在暂停态
+          r.accumSec += fold(r, at);
+          r.segmentStart = undefined;
+          r.status = STATUS_PAUSED;
+        }
+        r.deviceId = "mock-device"; // 浏览器 mock 只有一台设备
+        r.events = [...(r.events || []), ev(at, "takeover", "从设备 " + String(r.deviceId || "").slice(0, 8) + " 接管")];
+        touch(r, at);
+        return { ...r };
+      }),
+
     FocusRecover: (id: string) =>
       call(() => {
         const r = find(id);
