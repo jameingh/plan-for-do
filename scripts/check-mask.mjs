@@ -37,6 +37,12 @@ async function clickXY(x, y, wait = 300) {
   await sleep(wait);
 }
 async function clickAt(sel, text, wait = 320) {
+  // 设置页越来越长，目标可能已经滚出可视区；先滚进来再量坐标。
+  // （量一个视口外的矩形会点空，表现成「弹窗没打开」这种假失败。）
+  await evalJs(`(()=>{const L=[...document.querySelectorAll(${JSON.stringify(sel)})];` +
+    `const e=${text ? `L.find(x=>(x.innerText||"").includes(${JSON.stringify(text)}))` : "L[0]"};` +
+    `if(e)e.scrollIntoView({block:"center"});return 1})()`);
+  await sleep(250);
   const pt = JSON.parse(await evalJs(`(()=>{const L=[...document.querySelectorAll(${JSON.stringify(sel)})];` +
     `const e=${text ? `L.find(x=>(x.innerText||"").includes(${JSON.stringify(text)}))` : "L[0]"};if(!e)return JSON.stringify(null);` +
     `const r=e.getBoundingClientRect();return JSON.stringify({x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)})})()`));
