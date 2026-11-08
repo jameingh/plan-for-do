@@ -3,7 +3,7 @@
 > 本地优先的跨端清单 / 习惯 / 视图 / 专注 / 备忘录应用。纯 Go 内核 + Wails v3 桌面壳 + React 前端，
 > 数据默认只存在你自己机器上，同步通道可插拔（飞书多维表格 / 飞书云盘 / WebDAV / 本地文件夹）。
 
-![Release](https://github.com/jameingh/plan-for-do/actions/workflows/release.yml/badge.svg)
+![CI](https://github.com/jameingh/plan-for-do/actions/workflows/ci.yml/badge.svg) ![Release](https://github.com/jameingh/plan-for-do/actions/workflows/release.yml/badge.svg)
 
 中文项目，文档与代码注释均为中文。产品名「功到」取「功到自然成」；界面与交互的规格记录在
 [docs/design-reference.md](docs/design-reference.md)，架构与口径记录在 [docs/architecture.md](docs/architecture.md)。
@@ -80,6 +80,11 @@ CGO_ENABLED=0 go test ./...          # 内核单测：重复展开、存储、�
 cd frontend && npx tsc --noEmit
 ```
 
+这些每次 push 都会由 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) 跑一遍：
+`kernel`（vet + go test）与 `web`（tsc + 构建）在 ubuntu 上，八个界面自检各占一个 **windows runner** job
+（它们起真的 Wails 窗口 + WebView2，靠 CDP 派发真鼠标键盘事件，Linux/macOS 上没有这套东西），
+失败的 job 会上传当时的截图与实例日志作为工件。
+
 界面回归走 CDP 真鼠标键盘事件（不靠人点，也不信假数据）：
 
 ```bash
@@ -124,4 +129,12 @@ git tag v0.1.0 && git push origin v0.1.0
 - 专注的「进行中」独占只在本机生效：两台设备各开一次专注会留下两条未结束记录，跨设备互斥没做。
 - 关掉应用期间不会继续计时（这是设计：恢复时最多补一个心跳周期，避免把没在的时间算成专注）。
 - 法定节假日与调休数据源、系统原生通知、附件字节同步、加密导出还没做。
-- 许可证待定（仓库当前没有 `LICENSE` 文件）。
+
+## 许可证
+
+[GNU GPLv3](LICENSE)（见仓库根 `LICENSE`）。你可以自由运行、研究、修改和再分发本程序；
+**任何分发修改版的义务是同样的**：必须公开对应的完整源代码并保留本许可证（GPL-3 的 copyleft），
+网络服务除外（若想要 AGPL 那种「云服务也得开源」的强度，另行说明）。
+
+依赖的许可证与本项目的 GPL-3 兼容：Wails v3 与 `modernc.org/sqlite` 为 MPL-2.0（文件级 copyleft，可与 GPL 组合作品共存），
+React/Vite 等为 MIT。各依赖保留各自的许可证文件。
