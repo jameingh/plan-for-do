@@ -1,0 +1,138 @@
+name: CI
+
+# push / PR 上先跑便宜的（内核测试 + 类型检查 + 前端构建），绿了再烧 GUI 自检。
+# 界面自检必须在 Windows runner 上跑：它起的是真的 Wails 窗口 + WebView2，
+# 用 CDP 派发真鼠标键盘事件（scripts/cdp.mjs），Linux/macOS runner 上没有这套东西。
+on:
+  push:
+    tags-ignore:
+      - "v*"          # 打 tag 的发布走 release.yml
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  kernel:
+    name: 内核（vet + go test）
+    runs-on: ubuntu-24.04
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: go vet
+        run: go vet ./internal/... ./cmd/... .
+      - name: go test
+        run: go test ./... -count=1 -timeout=20m
+
+  web:
+    name: 前端（tsc + 构建）
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: 安装依赖
+        working-directory: frontend
+        run: npm ci
+      - name: 类型检查
+        working-directory: frontend
+        run: npx tsc --noEmit
+      - name: 构建产物
+        working-directory: frontend
+        run: npm run build
+
+  # 八个界面自检各占一个 job：每个脚本都要按自己的 start tab 重启一个隔离实例，
+  # 共用实例会被上一个脚本留下的页面状态污染出假失败（本机就发生过）。
+  ui:
+    name: 界面自检 · ${{ matrix.script }}
+    runs-on: windows-latest
+    needs: [kernel, web]
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - script: check-modal.mjs
+            tab: list
+            seed: ""
+          - script: check-habit.mjs
+            tab: habits
+            seed: ""
+          - script: check-mask.mjs
+            tab: list
+            seed: ""
+          - script: check-account.mjs
+            tab: list
+            seed: ""
+          - script: check-view.mjs
+            tab: views
+            seed: seed-view.sh
+          - script: check-stat.mjs
+            tab: habits
+            seed: seed-stat.sh
+          - script: check-memo.mjs
+            tab: memos
+            seed: ""
+          - script: check-focus.mjs
+            tab: focus
+            seed: seed-focus.sh
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # verify-restart.sh 会 npm run build + go build 出 bin/planfordo-verify.exe，
+      # 再起一个隔离实例（独立数据目录 + 独立 WebView2 profile + CDP 端口）。
+      - name: 起自检实例（${{ matrix.tab }}）
+        run: bash scripts/verify-restart.sh 9256 "${{ matrix.tab }}"
+
+      - name: 灌种子
+        if: matrix.seed != ''
+        run: bash "scripts/${{ matrix.seed }}"
+
+      - name: 跑 ${{ matrix.script }}
+        run: node "scripts/${{ matrix.script }}" 9256
+
+      # 失败时把现场留下：一张当前截图 + 实例日志 + 界面报错日志，
+      # 否则 CI 上只有一行「找不到 .xx」根本没法查。
+      - name: 失败留证据
+        if: failure()
+        run: |
+          mkdir -p ci-evidence
+          node scripts/cdp.mjs 9256 eval '"ci-fallback"' --shot "ci-evidence/${{ matrix.script }}.png" || true
+          cp tmp/verify-run.log ci-evidence/ 2>/dev/null || true
+          ls -l ci-evidence || true
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ci-evidence-${{ matrix.script }}
+          path: ci-evidence
+          if-no-files-found: ignore
+          retention-days: 7
