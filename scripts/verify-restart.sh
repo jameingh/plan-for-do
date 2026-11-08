@@ -4,6 +4,11 @@
 # profile 不换新就会忽略 --remote-debugging-port，CDP 口连不上）。
 set -e
 cd "$(dirname "$0")/.."
+# 路径一律从仓库根算：CI 的 runner 在 D:\a\<repo>\<repo>，写死本机路径的话自检根本起不来。
+# 要指到别处用 PLANDO_VDATA / PLANDO_VPROFILE 覆盖（CI 与 snapshot-real 共用同一套变量名）。
+ROOT=$(pwd -W 2>/dev/null || pwd)
+DATA_DIR="${PLANDO_VDATA:-$ROOT/tmp/vdata}"
+PROFILE_DIR="${PLANDO_VPROFILE:-$ROOT/tmp/vprofile}"
 PORT="${1:-9255}"
 TAB="${2:-list}"
 
@@ -19,13 +24,12 @@ for i in $(seq 1 12); do
   [ "$pgps" = "0" ] && break
   sleep 1
 done
-if ! rm -rf tmp/vdata tmp/vprofile 2>/dev/null; then
-  echo "删不掉 tmp/vdata：还有进程占着数据目录（tasklist 看 planfordo-verify.exe），先手动结束再跑" >&2
+if ! rm -rf "$DATA_DIR" "$PROFILE_DIR" 2>/dev/null; then
+  echo "删不掉 $DATA_DIR：还有进程占着数据目录（tasklist 看 planfordo-verify.exe），先手动结束再跑" >&2
   exit 1
 fi
-mkdir -p tmp/vdata tmp/vprofile
-PLANDO_DATA_DIR="C:\\Users\\Public\\project\\plan-for-do\\tmp\\vdata" \
-PLANDO_WEBVIEW_PROFILE="C:\\Users\\Public\\project\\plan-for-do\\tmp\\vprofile" \
+mkdir -p "$DATA_DIR" "$PROFILE_DIR"
+PLANDO_DATA_DIR="$DATA_DIR" PLANDO_WEBVIEW_PROFILE="$PROFILE_DIR" \
 PLANDO_CDP_PORT="$PORT" PLANDO_START_TAB="$TAB" \
   ./bin/planfordo-verify.exe > tmp/verify-run.log 2>&1 &
 

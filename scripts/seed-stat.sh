@@ -5,7 +5,8 @@
 # 用法：bash scripts/seed-stat.sh [数据目录]   （默认 tmp/vdata，需先跑 verify-restart.sh 建好库）
 set -e
 cd "$(dirname "$0")/.."
-DIR="${1:-C:\\Users\\Public\\project\\plan-for-do\\tmp\\vdata}"
+ROOT=$(pwd -W 2>/dev/null || pwd)
+DIR="${1:-${PLANDO_VDATA:-$ROOT/tmp/vdata}}"
 BIN=bin/plando-verify.exe
 [ -f "$BIN" ] || go build -o "$BIN" ./cmd/plando
 run() { PLANDO_DATA_DIR="$DIR" "$BIN" "$@" >/dev/null; }

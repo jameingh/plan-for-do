@@ -6,9 +6,14 @@
 // 沉浸流是真等的：番茄那段要等 62 秒让一轮走完，这是这一页唯一无法用「点一下」验证的时序。
 import { DatabaseSync } from "node:sqlite";
 import { addDays, diffDays, monthDays, today, weekdayMon } from "./lib/d.mjs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+// 仓库根：CI runner 的路径与本机不同，所有 tmp/ 位置都从这里推，不写死绝对路径。
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const port = process.argv[2] || "9256";
-const DATA = "C:/Users/Public/project/plan-for-do/tmp/vdata";
+const DATA = process.env.PLANDO_VDATA || path.join(ROOT, "tmp", "vdata");
 const T = today();
 
 const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();

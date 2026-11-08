@@ -4,9 +4,13 @@
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+// 仓库根：CI runner 的路径与本机不同，所有 tmp/ 位置都从这里推，不写死绝对路径。
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const src = path.join(process.env.APPDATA || "", "planfordo", "planfordo.db");
-const dir = process.argv[2] || "C:/Users/Public/project/plan-for-do/tmp/rdata";
+const dir = process.argv[2] || process.env.PLANDO_RDATA || path.join(ROOT, "tmp", "rdata");
 if (!fs.existsSync(src)) { console.error("找不到真实库：" + src); process.exit(1); }
 fs.mkdirSync(dir, { recursive: true });
 const out = path.join(dir, "planfordo.db").replace(/\\/g, "/");

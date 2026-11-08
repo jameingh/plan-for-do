@@ -6,9 +6,14 @@
 // 种子用的是「相对今天」的日期，所以断言只依赖今天星期几，不写死日历。
 import { DatabaseSync } from "node:sqlite";
 import { addMonths, monthCN, today, weekdayMon } from "./lib/d.mjs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+// 仓库根：CI runner 的路径与本机不同，所有 tmp/ 位置都从这里推，不写死绝对路径。
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const port = process.argv[2] || "9256";
-const DATA = "C:/Users/Public/project/plan-for-do/tmp/vdata";
+const DATA = process.env.PLANDO_VDATA || path.join(ROOT, "tmp", "vdata");
 const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
 const target = list.find((t) => t.type === "page" && (t.url || "").startsWith("http://wails.localhost"));
 if (!target) { console.error("没找到应用页面"); process.exit(1); }

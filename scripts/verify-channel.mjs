@@ -1,5 +1,8 @@
 // 端到端验证「设置页配置同步通道」这条真实路径：新增 → 填表 → 保存 → 同步。
 // 选择器全部按 placeholder / class / aria 定位，不按 input 下标，避免页面多一行通道就错位。
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 const port = process.argv[2] || "9231";
 
 const target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json())
@@ -53,7 +56,9 @@ const keyInput = `(() => { const el=[...document.querySelectorAll('input')].find
 // kv-row 里第一个 input 是键、第二个是值
 const valueInputOf = (k) => `(() => { const row=[...document.querySelectorAll('.kv-row')].find(r=>r.children[0]?.value===${JSON.stringify(k)}); if(!row) return null; const el=row.children[1]; const r=el.getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()`;
 
-const DIR = "C:/Users/Public/project/plan-for-do/tmp/sync-share";
+// 仓库根：CI runner 的路径与本机不同，同步通道的共享目录也从这里推。
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const DIR = process.env.PLANDO_SYNC_SHARE || path.join(ROOT, "tmp", "sync-share");
 
 // 0. 先清掉历史通道，保证这次是「从零配置」的干净路径
 const existing = await ev(`(() => [...document.querySelectorAll('article')].map(a=>a.innerText.replace(/\\s+/g,' ').slice(0,80)))()`);

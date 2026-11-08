@@ -2,8 +2,13 @@
 // 用法：node scripts/peek-db.mjs [数据目录] [kind 关键字]
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const dir = process.argv[2] || "C:/Users/Public/project/plan-for-do/tmp/vdata";
+// 仓库根：CI runner 的路径与本机不同，所有 tmp/ 位置都从这里推，不写死绝对路径。
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+const dir = process.argv[2] || process.env.PLANDO_VDATA || path.join(ROOT, "tmp", "vdata");
 const like = process.argv[3] || "habit";
 const db = new DatabaseSync(`${dir}/planfordo.db`, { readOnly: true });
 const tables = db.prepare("select name from sqlite_master where type = 'table'").all().map((r) => r.name);

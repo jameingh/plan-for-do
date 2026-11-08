@@ -4,9 +4,14 @@
 // 只动隔离数据目录。
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+// 仓库根：CI runner 的路径与本机不同，所有 tmp/ 位置都从这里推，不写死绝对路径。
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const port = process.argv[2] || "9256";
-const DATA = "C:/Users/Public/project/plan-for-do/tmp/vdata";
+const DATA = process.env.PLANDO_VDATA || path.join(ROOT, "tmp", "vdata");
 const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
 const target = list.find((t) => t.type === "page" && (t.url || "").startsWith("http://wails.localhost"));
 if (!target) { console.error("没找到应用页面"); process.exit(1); }
