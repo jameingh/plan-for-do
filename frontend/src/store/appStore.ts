@@ -61,7 +61,7 @@ let state: AppState = {
   booted: false,
   boot: null,
   page: initialPage(),
-  settings: { showDone: true, defaultGroup: "date", theme: "light", habitCreateMode: "guided", memoSortType: 0, view: { hideMatterClocked: false, hideHabitClocked: false, matterColorMode: 0, matterColorValue: "", habitColorMode: 0, habitColorValue: "", hideCategories: [], hideHabitContexts: [] } },
+  settings: { showDone: true, defaultGroup: "date", theme: "light", habitCreateMode: "guided", memoSortType: 0, quietNative: false, view: { hideMatterClocked: false, hideHabitClocked: false, matterColorMode: 0, matterColorValue: "", habitColorMode: 0, habitColorValue: "", hideCategories: [], hideHabitContexts: [] } },
   revision: 0,
   filters: { day: "", groupBy: "date", listId: "", categoryId: "", labelId: "" },
   habitMonth: "",
@@ -119,6 +119,8 @@ export function normalizeSettings(s: Settings): Settings {
     habitCreateMode: s.habitCreateMode === "classic" ? "classic" : "guided",
     // 备忘录排序：老设置行里可能压根没这个键（参考站默认 createTime）
     memoSortType: s.memoSortType === 1 ? 1 : 0,
+    // 原生通知默认开：老设置行里没有这一键，退回 false = 不静音
+    quietNative: s.quietNative === true,
     view,
   };
 }

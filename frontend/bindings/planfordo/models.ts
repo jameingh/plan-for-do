@@ -89,6 +89,12 @@ export interface Settings {
     "view": ViewConfig;
 
     /**
+     * QuietNative 关掉系统原生通知。字段按「零值即默认」设计：
+     * 老库里的偏好没有这一项，Unmarshal 出来是 false = 默认弹通知，不需要补迁移。
+     */
+    "quietNative": boolean;
+
+    /**
      * MemoSortType 是备忘录列表的排序方式：0 按创建时间（默认）、1 按修改时间。
      * 参考站把它存在 localStorage 的 memoSortType 键里（"createTime"/"editTime"），
      * 我们存内核设置，这样它跟着同步走、换 WebView 也不丢。

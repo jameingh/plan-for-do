@@ -37,6 +37,7 @@ import type {
   CalendarHabit,
   CalendarRequest,
   CalendarStatus,
+  NotifyInfo,
   CalendarView,
   ListView,
   ListViewRequest,
@@ -330,7 +331,7 @@ export function createMockKernel(): Kernel {
     memoFolders: [],
     focus: [],
     memos: [],
-    settings: { showDone: true, defaultGroup: "date", theme: "light", habitCreateMode: "guided", memoSortType: 0, view: { hideMatterClocked: false, hideHabitClocked: false, matterColorMode: 0, matterColorValue: "", habitColorMode: 0, habitColorValue: "", hideCategories: [], hideHabitContexts: [] } },
+    settings: { showDone: true, defaultGroup: "date", theme: "light", habitCreateMode: "guided", memoSortType: 0, quietNative: false, view: { hideMatterClocked: false, hideHabitClocked: false, matterColorMode: 0, matterColorValue: "", habitColorMode: 0, habitColorValue: "", hideCategories: [], hideHabitContexts: [] } },
     channels: [
       { name: "本地文件夹", kind: "localdir", enabled: true, options: { path: "D:/sync/plan-for-do" } },
       { name: "飞书多维表格", kind: "feishuBase", enabled: false, options: { app_id: "cli_a000000000", app_secret: "•", table_id: "tblDemo0001" } },
@@ -1200,6 +1201,14 @@ export function createMockKernel(): Kernel {
         }));
         return { years, builtinYears: years.map((y) => y.year), localYears: [], dir: "（浏览器 mock 没有数据目录）" };
       }),
+
+    // 浏览器里没有系统通知中心可弹：available=false，界面据此说明「当前只有应用内提醒」。
+    NotifyInfo: () => call((): NotifyInfo => ({ available: false, quiet: false })),
+    TestNotify: () => call(() => { throw err("这台设备的系统通知不可用（当前只有应用内提醒）"); }),
+    PushNotify: (title: string, body: string) => call(() => {
+      // 内存 mock 不弹任何东西，但也不能报错：番茄钟的轮次提示在浏览器里照常走应用内浮条。
+      void title; void body;
+    }),
 
     ItemImages: (itemID: string) =>
       call(() => (db.images[itemID] ?? []).slice()),

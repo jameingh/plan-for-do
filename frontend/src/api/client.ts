@@ -71,6 +71,14 @@ export interface Kernel {
   LunarLabels(days: Day[]): Promise<import("./types").LunarCell[]>;
   /** 当前生效的法定节假日数据：覆盖年份、出处、本机导入目录 */
   CalendarInfo(): Promise<import("./types").CalendarStatus>;
+
+  // —— 系统原生通知 ——
+  /** 这台设备有没有真的原生通知落地 + 当前是否被静音 */
+  NotifyInfo(): Promise<import("./types").NotifyInfo>;
+  /** 设置页的「测试通知」：错误原样抛回界面 */
+  TestNotify(): Promise<void>;
+  /** 界面自己算出来的时刻（番茄钟一轮走完、休息结束）也送一条系统通知 */
+  PushNotify(title: string, body: string): Promise<void>;
   /** 事项图片：base64 上传（WebView2 不暴露 File.path），最多 5 张 */
   AddItemImage(itemID: string, name: string, dataBase64: string): Promise<import("./types").Attachment>;
   ItemImages(itemID: string): Promise<import("./types").Attachment[]>;

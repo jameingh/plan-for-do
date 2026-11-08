@@ -21,6 +21,7 @@ import (
 	"planfordo/internal/core/service"
 	"planfordo/internal/core/store"
 	plansync "planfordo/internal/core/sync"
+	"planfordo/internal/notify"
 )
 
 // API 是暴露给前端的唯一服务。每个方法都是内核用例的薄封装：
@@ -32,6 +33,8 @@ type API struct {
 	syncMgr  *plansync.Manager
 	dataDir  string
 	calendar *calendar.FS
+
+	notifier notify.Sender // 系统原生通知；attach 之后才可用（要读 application 的配置）
 
 	fired    map[string]bool    // 已提醒过的提醒，避免同一轮重复弹
 	reminder context.CancelFunc // 关窗时停掉定时器
@@ -75,6 +78,9 @@ func NewAPI(dataDir string) (*API, error) {
 // Attach 把 Wails 应用回填进来，并启动提醒轮询。
 func (a *API) attach(app *application.App) {
 	a.app = app
+	// 原生通知必须在 application.New 之后起：服务的启动流程要读 app.Config().Name。
+	// 起不来就退回空实现，提醒仍然走应用内浮条。
+	a.notifier = notify.New(context.Background())
 	ctx, cancel := context.WithCancel(context.Background())
 	a.reminder = cancel
 	go a.reminderLoop(ctx)
@@ -82,6 +88,9 @@ func (a *API) attach(app *application.App) {
 
 // Shutdown 停掉后台轮询并关库。
 func (a *API) shutdown() {
+	if a.notifier != nil {
+		a.notifier.Close()
+	}
 	if a.reminder != nil {
 		a.reminder()
 	}
@@ -615,6 +624,9 @@ type Settings struct {
 	HabitCreateMode string `json:"habitCreateMode"`
 	// View 是视图页（日/周/月）的显示配置。
 	View ViewConfig `json:"view"`
+	// QuietNative 关掉系统原生通知。字段按「零值即默认」设计：
+	// 老库里的偏好没有这一项，Unmarshal 出来是 false = 默认弹通知，不需要补迁移。
+	QuietNative bool `json:"quietNative"`
 	// MemoSortType 是备忘录列表的排序方式：0 按创建时间（默认）、1 按修改时间。
 	// 参考站把它存在 localStorage 的 memoSortType 键里（"createTime"/"editTime"），
 	// 我们存内核设置，这样它跟着同步走、换 WebView 也不丢。
@@ -848,6 +860,78 @@ func (a *API) fireDueReminders(ctx context.Context) {
 	}
 	sort.SliceStable(due, func(i, j int) bool { return due[i].At < due[j].At })
 	a.emit("reminder:due", due)
+	a.notifyFires(due)
+}
+
+// notifyFires 把这一批到点的提醒送进系统通知中心。
+//
+// 为什么两处都要：应用内浮条只有窗口在前台才看得见，而「提醒」这件事恰恰发生在
+// 用户没在看这个应用的时候。窗口在前台时两条都会出，这是取舍而不是 bug——
+// 漏提醒比多一条通知更糟。
+func (a *API) notifyFires(fires []service.ReminderFire) {
+	if a.notifier == nil || !a.notifier.Available() {
+		return
+	}
+	s, err := a.settings()
+	if err != nil || s.QuietNative {
+		return
+	}
+	for _, f := range fires {
+		kind := "清单"
+		if f.Habit {
+			kind = "习惯"
+		}
+		body := kind + " · " + string(f.Day) + " " + hhmm(f.At)
+		if err := a.notifier.Send(f.Title, body); err != nil {
+			a.ReportError("notify", err.Error())
+		}
+	}
+}
+
+// hhmm 把 tclock 的绝对时刻切成 HH:MM，通知正文里不需要秒和时区。
+func hhmm(c model.ClockTime) string {
+	if len(c) < 16 {
+		return string(c)
+	}
+	return string(c)[11:16]
+}
+
+// —— 系统原生通知 ——
+
+// NotifyInfo 告诉界面这台机器有没有真的原生通知，以及当前是否被静音。
+// 非 Windows 平台 Available=false，界面据此把开关说明成「本平台不支持」而不是假装能开。
+func (a *API) NotifyInfo() map[string]any {
+	s, _ := a.settings()
+	out := map[string]any{
+		"available": a.notifier != nil && a.notifier.Available(),
+		"quiet":     s.QuietNative,
+	}
+	return out
+}
+
+// TestNotify 立刻弹一条，给设置页的「测试通知」用。
+// 用户点这颗按钮就是要确认「系统那边真的收得到」，所以错误必须原样抛回界面。
+func (a *API) TestNotify() error {
+	if a.notifier == nil || !a.notifier.Available() {
+		return fmt.Errorf("这台设备的系统通知不可用（当前只有应用内提醒）")
+	}
+	return a.notifier.Send("功到 · 测试通知", "能看到这条，到点的提醒就会这样弹出来")
+}
+
+// PushNotify 给界面用：番茄钟一轮走完、休息结束这类「界面自己算出来的时刻」
+// 也送一条系统通知。标题与正文都由前端给，内核不猜语义。
+func (a *API) PushNotify(title, body string) error {
+	if a.notifier == nil || !a.notifier.Available() {
+		return nil // 平台不支持：静默通过，前端不需要为此分支
+	}
+	s, err := a.settings()
+	if err == nil && s.QuietNative {
+		return nil
+	}
+	if title == "" {
+		return fmt.Errorf("通知标题不能为空")
+	}
+	return a.notifier.Send(title, body)
 }
 
 func parseClock(s string) (time.Time, bool) {

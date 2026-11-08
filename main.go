@@ -36,6 +36,13 @@ func init() {
 }
 
 func main() {
+	// 点系统通知时 Windows 会按注册表里的 LocalServer32 再拉起一次本程序，
+	// 参数带 -ToastActivated。这一次不该开第二个窗口、更不该去抢同一个 SQLite 库：
+	// 通知服务在原地接收点击事件就够了，所以直接退出。
+	if toastActivationRequested(os.Args[1:]) {
+		return
+	}
+
 	dataDir, err := resolveDataDir()
 	if err != nil {
 		log.Fatalf("启动失败: %v", err)
@@ -112,6 +119,20 @@ func main() {
 	}
 	// 关掉提醒轮询并 checkpoint WAL，否则下次启动看到的是半截状态。
 	api.shutdown()
+}
+
+// toastActivationRequested 认 Windows 通知的激活参数。
+//
+// 通知服务的注册流程会把「本 exe + %1」写进 HKCU\Software\Classes\CLSID\{guid}\LocalServer32，
+// 用户点通知（或通知上的按钮）时 Windows 就带着 -ToastActivated 再拉一次进程。
+// 只认这个前缀，别的参数一律当正常启动——不能把「用户双击图标」误判成激活而不开窗。
+func toastActivationRequested(args []string) bool {
+	for _, a := range args {
+		if strings.HasPrefix(strings.ToLower(a), "-toastactivated") {
+			return true
+		}
+	}
+	return false
 }
 
 // attachmentHandler 在内嵌前端之外多挂一条路由：/attachments/<文件名> → 数据目录里的图片。

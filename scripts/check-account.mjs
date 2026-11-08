@@ -113,6 +113,23 @@ check("每个年份 chip 给出休/班条数", cal.chips.every((c) => /休\d+·�
 check("数据目录指向 vdata/calendars", /calendars/.test(cal.dir) && /vdata/.test(cal.dir), cal.dir);
 check("说明写清「表没覆盖的年份会退化」", /退化/.test(cal.note) && /猜/.test(cal.note), cal.note.slice(0, 80));
 
+console.log("\n=== 设置页：系统原生通知 ===");
+// 这一段验的是「界面 → 绑定 → 内核 → 系统通知」这条链能不能走通；
+// 横幅画不画得出来是 Windows 那侧的事（见 docs/architecture.md 第 11 节第 3 条）。
+const nrow = JSON.parse(await evalJs(`(()=>{const s=[...document.querySelectorAll(".set-block")].find(x=>(x.innerText||"").includes("偏好设置"));` +
+  `if(!s)return JSON.stringify({on:false});const lab=[...s.querySelectorAll(".nav-item")].find(e=>e.innerText.includes("系统原生通知"));` +
+  `const btn=[...s.querySelectorAll(".btn")].find(e=>e.textContent.includes("测试通知"));` +
+  `const cb=lab?lab.querySelector("input[type=checkbox]"):null;` +
+  `return JSON.stringify({on:!!lab,checked:cb?cb.checked:null,disabled:cb?cb.disabled:null,` +
+  `btn:!!btn,btnOff:btn?btn.disabled:null,note:(s.querySelector(".set-note:last-of-type")||{}).innerText||""})})()`));
+check("偏好设置里有「系统原生通知」开关", nrow.on === true, JSON.stringify(nrow));
+check("开关默认是开的（零值即默认）", nrow.checked === true, String(nrow.checked));
+check("Windows 上开关与测试按钮都可用", nrow.disabled === false && nrow.btn === true && nrow.btnOff === false, JSON.stringify(nrow));
+await clickAt(".set-block .btn", "测试通知", 900);
+const tn = await toastText();
+check("点「测试通知」内核返回成功（不是报错）", /已送出/.test(tn), tn);
+await clickAt(".rail-item", "设置", 700);
+
 console.log("\n=== 预留动作不动数据 ===");
 const before = await evalJs(`document.body.innerText.length`);
 const STUB = /没有账号体系/;

@@ -562,6 +562,15 @@ export interface Settings {
   view: ViewConfig;
   /** 备忘录列表排序：0 按创建时间（默认）、1 按修改时间。参考站存 localStorage，我们存内核 */
   memoSortType: MemoSort;
+  /** 关掉系统原生通知。false = 到点的提醒既在应用内浮出、也进系统通知中心（默认） */
+  quietNative: boolean;
+}
+
+/** 原生通知在这台设备上的可用性（内核 NotifyInfo）。 */
+export interface NotifyInfo {
+  /** 只有 Windows 有真的落地；其它平台 false，界面要说明而不是假装能开 */
+  available: boolean;
+  quiet: boolean;
 }
 
 /**

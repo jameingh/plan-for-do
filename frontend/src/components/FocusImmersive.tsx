@@ -17,6 +17,16 @@ import { I } from "./ui";
 const HEARTBEAT_SEC = 30; // 与内核 focusRecoverGrace 对齐
 const RUNNING = 1; // 2 = 暂停，3 = 已结束（内核 model.FocusStatus）
 
+/**
+ * 送一条系统通知（番茄轮次切换、倒计时到点这类「人可能已经走开」的时刻）。
+ *
+ * 错误一律吞掉：通知是锦上添花，弹不出去不该把计时流程打断。
+ * 平台不支持与「设置里静音了」都由内核返回 nil 直接通过，前端不需要分支。
+ */
+function pushNotify(title: string, body: string) {
+  void api.PushNotify(title, body).catch(() => undefined);
+}
+
 interface Rest { phase: "short" | "long"; left: number; total: number; pending: boolean }
 
 export function FocusImmersive({ record, task, onChange, onClose, onSettled, onOpenDetail }: {
@@ -76,6 +86,7 @@ export function FocusImmersive({ record, task, onChange, onClose, onSettled, onO
   // 倒计时到点 = 目标达成，直接保存并进结算
   useEffect(() => {
     if (isPomo || r.status !== RUNNING || target === 0 || left > 0) return;
+    pushNotify("功到 · 专注目标达成", fmtDuration(target) + " 走完了，去结算页写一句心得");
     run(() => api.FocusFinish(r.id, true).then((done) => { if (done) onSettled(done); return null; }));
   }, [left, r.status, target, isPomo, r.id, run, onSettled]);
 
@@ -85,10 +96,13 @@ export function FocusImmersive({ record, task, onChange, onClose, onSettled, onO
     run(() => api.FocusPhaseEnd(r.id, "focus", 0).then((after) => {
       const done = after?.cycles ?? 0;
       if (cyclesLeft(done, plan) === 0) {
+        pushNotify("功到 · 番茄全部完成", `${done} 轮都走完了，来写一句专注心得`);
         return api.FocusFinish(r.id, true).then((fin) => { if (fin) onSettled(fin); return null; });
       }
       const phase = restPhaseAfter(done, plan) as "short" | "long";
       const sec = restSecOf(plan, phase);
+      // 轮次切换是「人可能已经走开」的时刻，应用内的提示条看不到，所以走系统通知。
+      pushNotify("功到 · 第 " + (done) + " 轮结束", `该${phase === "long" ? "长" : "短"}休息 ${Math.round(sec / 60)} 分钟`);
       return api.FocusRestStart(r.id, phase).then((x) => {
         setRest({ phase, left: sec, total: sec, pending: !plan.autoRest });
         return x;
@@ -107,6 +121,7 @@ export function FocusImmersive({ record, task, onChange, onClose, onSettled, onO
     if (!rest) return;
     const snapshot = rest;
     setRest(null);
+    if (plan.autoRest && cyclesLeft(r.cycles, plan) > 0) pushNotify("功到 · 休息结束", "下一轮开始了，回到专注上");
     run(() => api.FocusPhaseEnd(r.id, snapshot.phase, sec).then((x) => {
       if (!x) return null;
       // 自动休息开着就一路走到底；关着就把「继续」留给用户按

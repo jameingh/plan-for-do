@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { api, bridgeProbe } from "../api/client";
-import type { CalendarStatus, SyncConfig, SyncResult, SyncState } from "../api/types";
+import type { CalendarStatus, NotifyInfo, SyncConfig, SyncResult, SyncState } from "../api/types";
 import { saveSettings, toast, toastErr, useApp } from "../store/appStore";
 import { SingleTab, TopBar } from "./chrome";
 import { Empty, FieldError, I, Modal, Segmented } from "./ui";
@@ -24,6 +24,7 @@ export function SettingsPage() {
   const [results, setResults] = useState<SyncResult[] | null>(null);
   const [states, setStates] = useState<Record<string, SyncState>>({});
   const [probeMsg, setProbeMsg] = useState("");
+  const [ninfo, setNinfo] = useState<NotifyInfo | null>(null);
   // 节假日数据只在设置页要显示，不进 boot 握手：它是「解释界面为什么这样标」的辅助信息，
   // 读失败不该把整页拖成空白。
   const [cal, setCal] = useState<CalendarStatus | null>(null);
@@ -36,6 +37,7 @@ export function SettingsPage() {
   useEffect(() => {
     if (!booted) return;
     api.CalendarInfo().then(setCal).catch(() => setCal(null));
+    api.NotifyInfo().then(setNinfo).catch(() => setNinfo(null));
   }, [booted]);
 
   useEffect(() => {
@@ -136,6 +138,22 @@ export function SettingsPage() {
               <input className="check-native" type="checkbox" checked={settings.showDone} onChange={(e) => void saveSettings({ ...settings, showDone: e.target.checked })} />
               <span className="grow">显示已打卡清单</span>
             </label>
+            <div className="set-row">
+              <label className="nav-item" style={{ cursor: ninfo?.available ? "pointer" : "default", width: "auto", padding: "4px 8px" }}>
+                <input className="check-native" type="checkbox" disabled={!ninfo?.available}
+                  checked={!settings.quietNative} onChange={(e) => void saveSettings({ ...settings, quietNative: !e.target.checked })} />
+                <span className="grow">系统原生通知</span>
+              </label>
+              <button className="btn" disabled={!ninfo?.available || !!busy} onClick={() => void act("测试通知", async () => {
+                await api.TestNotify();
+                toast("已送出一条测试通知，没看到的话检查 Windows 的通知设置与免打扰");
+              })}>{busy === "测试通知" ? "发送中…" : "测试通知"}</button>
+            </div>
+            <p className="set-note">
+              {ninfo?.available
+                ? "到点的提醒除了应用内浮条，还会进 Windows 通知中心——窗口最小化或在别的桌面时也收得到。"
+                : "这台设备的系统通知不可用（当前只有 Windows 有原生落地），提醒只在应用内浮出。"}
+            </p>
           </section>
 
           <section className="set-block">

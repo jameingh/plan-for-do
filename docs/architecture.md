@@ -57,8 +57,8 @@ docs/                       本目录
 ```
 
 `internal/core/calendar/` 是节假日与农历数据源（实现 `repeat.HolidaySource`，内置年度表 +
-本机覆盖，见第 11 节第 2 条）。还没有 `notify/` 包：提醒时刻已算出，落地在壳层，
-系统原生通知仍未接。
+本机覆盖，见第 11 节第 2 条）。`internal/notify/` 是系统原生通知的落地层（Windows 有实现、
+其它平台空实现），提醒时刻本身仍算在 `service/reminders.go`，壳层在到点时两边都发。
 
 ## 4. 时间模型（最容易做错的部位）
 
@@ -208,8 +208,20 @@ type ConditionalChannel interface {
    设置页「节假日与调休」把覆盖年份、出处、核对日期与导入目录都摊开给用户看。
    每年 11 月官方公布下一年安排后，加一个 `data/<year>.json` 即可（`calendar_test.go` 的
    `TestBuiltinTablesAreValid` 会按条数与星期校验，写错星期或漏一天都过不去）。
-3. **系统通知**：提醒时刻已算出，桌面端还没接 Wails 原生通知；iOS 必须在应用激活时把
-   `UpcomingReminders` 预排成本地通知（系统 64 条上限）。
+3. **系统通知**（2026-11-08 做了一半，剩下的那一半卡在 Windows 的注册要求上）：
+   `internal/notify` 已经落地——提醒轮询到点、番茄钟轮次切换、倒计时到点都会送系统通知，
+   设置页有开关（`Settings.QuietNative`，零值即默认开）与「测试通知」，
+   `main.go` 认 `-ToastActivated` 直接退出，免得点通知时开出第二个实例去抢同一个 SQLite 库。
+   实现走 Wails 自带的通知服务（底层 `go-toast`，纯 syscall/COM，CGO-free 不破）。
+   **已验证**：界面点「测试通知」→ 内核返回成功 → 系统通知库
+   （`%LOCALAPPDATA%` 下 `Microsoft/Windows/Notifications/wpndatabase.db`，必须连 `-wal` 一起查）
+   里确实有我们发出的记录，含应用触发的那条。
+   **没验证到**：横幅本身在这台精简版 Windows VM 上三次定时全屏截图都没画出来。
+   原因定位到未打包程序的硬性要求——开始菜单里必须有一个带同一 AppUserModelID 的快捷方式，
+   Windows 才肯把 toast 归属给这个应用并画横幅（只写注册表 `AppUserModelId` 那一条不够）。
+   补这段代码要动用户的开始菜单、而本机又看不到效果，所以先不写；
+   等能在真机上验证到横幅再补，或者改走打包安装（MSIX / 安装器会顺带把 AUMID 注册好）。
+   iOS 那半边仍是「应用激活时把 `UpcomingReminders` 预排成本地通知」（系统 64 条上限）。
 4. **附件同步**：事项图片已经能存能看（`api.AddItemImage` 落 `dataDir/attachments`，
    经 `/attachments/<file>` 路由显示，上限 5 张），但**只同元数据、文件留本机**——
    换设备会看到「图不在这台设备上」。要真把图传到网盘吗？

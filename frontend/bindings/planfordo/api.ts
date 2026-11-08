@@ -402,6 +402,14 @@ export function MoveMemoFolders(memoIDs: string[] | null, folderID: string): $Ca
 }
 
 /**
+ * NotifyInfo 告诉界面这台机器有没有真的原生通知，以及当前是否被静音。
+ * 非 Windows 平台 Available=false，界面据此把开关说明成「本平台不支持」而不是假装能开。
+ */
+export function NotifyInfo(): $CancellablePromise<{ [_ in string]?: any } | null> {
+    return $Call.ByID(103925161);
+}
+
+/**
  * OverdueItems 返回当前逾期的事项。
  */
 export function OverdueItems(day: model$0.Day): $CancellablePromise<$models.OverdueBundle> {
@@ -427,6 +435,14 @@ export function ProbeSyncChannel(cfg: sync$0.Config): $CancellablePromise<void> 
  */
 export function PurgeMemos(memoIDs: string[] | null): $CancellablePromise<number> {
     return $Call.ByID(2525324774, memoIDs);
+}
+
+/**
+ * PushNotify 给界面用：番茄钟一轮走完、休息结束这类「界面自己算出来的时刻」
+ * 也送一条系统通知。标题与正文都由前端给，内核不猜语义。
+ */
+export function PushNotify(title: string, body: string): $CancellablePromise<void> {
+    return $Call.ByID(916428693, title, body);
 }
 
 /**
@@ -638,6 +654,14 @@ export function SyncNow(name: string): $CancellablePromise<sync$0.Result[] | nul
  */
 export function SyncState(name: string): $CancellablePromise<store$0.SyncState> {
     return $Call.ByID(1723863732, name);
+}
+
+/**
+ * TestNotify 立刻弹一条，给设置页的「测试通知」用。
+ * 用户点这颗按钮就是要确认「系统那边真的收得到」，所以错误必须原样抛回界面。
+ */
+export function TestNotify(): $CancellablePromise<void> {
+    return $Call.ByID(17785989);
 }
 
 /**

@@ -1283,3 +1283,54 @@ default:                          "missed"
   数据目录指向 `vdata/calendars`、说明写明退化口径。
 - 内置表过期时脚本打「待核对」而不是失败——那是该补数据，不是界面的错。
 - 回归：`check-modal` 66、`check-view` 67、`check-account` 25、`go test ./internal/... .` 全绿。
+
+## 26. 系统原生通知（2026-11-08，做了一半）
+
+已知限制里的第二条。原来的状态：`api.reminderLoop` 每 30 秒算一次到点的提醒，只 `emit("reminder:due")`
+给前端浮条——窗口最小化或在别的桌面时，那条提醒根本没人看得见，而这恰恰是提醒最该起作用的时候。
+
+### 做了什么
+
+- `internal/notify/`：`Sender` 接口（`Send/Available/Close`）+ Windows 实现 + 其它平台的空实现。
+  Windows 侧直接用 Wails 自带的通知服务（`pkg/services/notifications`，底层 `go-toast`），
+  纯 syscall/COM，**CGO-free 约束没破**（`linux/darwin/windows-arm64` 四个交叉目标都编得过）。
+- 三个发出点：① 提醒轮询到点（`fireDueReminders` → `notifyFires`）；② 番茄钟轮次切换
+  （一轮结束该休息 / 休息结束下一轮 / 全部轮次完成）；③ 倒计时到点。
+  后两处由界面调 `api.PushNotify(title, body)`——时刻是界面算出来的，内核不猜语义。
+- 设置页「偏好设置」新增「系统原生通知」开关 + 「测试通知」按钮；
+  平台不支持时开关禁用、文案改成「这台设备的系统通知不可用（当前只有应用内提醒）」，而不是假装能开。
+- `Settings.QuietNative` 按「零值即默认」设计：老库里的偏好没有这一键，Unmarshal 出来是
+  `false` = 默认弹，不需要补迁移脚本。
+- `main.go` 开头认 `-ToastActivated` 直接返回。通知服务的注册流程会把「本 exe + %1」写进
+  `HKCU\Software\Classes\CLSID\{guid}\LocalServer32`，用户点通知时 Windows 会再拉一次进程——
+  不拦的话就是第二个实例去开同一个 SQLite 库。
+
+### 验证到哪一步（以及没到哪一步）
+
+已验证：
+
+- 界面点「测试通知」→ 绑定 → 内核 → 返回成功，应用内 toast 文案是「已送出一条测试通知…」（`check-account` 断言）。
+- 系统自己的通知库里确实收下了我们发的东西：`wpndatabase.db` **连 `-wal` 一起查**能数到 5 条含
+  `planfordo` / `功到` 的 toast 记录，其中一条 `activationType="foreground"`、launch 里带
+  `id":"planfordo-…"`，正是从应用里点出来的那条。
+
+没验证到：
+
+- **横幅没画出来**。三次定时全屏截图（点击后 1.2s / 2.6s / 4s）里都没有 toast 横幅，
+  而同一个库能看到别的程序（Qoder 自己）的横幅记录——所以不是「这台机器的通知平台坏了」。
+- 原因定位：未打包的 Win32 程序要 Windows 肯归属并画横幅，**开始菜单里必须有一个
+  带同一 AppUserModelID 的快捷方式**；只写 `HKCU\Software\Classes\AppUserModelId\planfordo`
+  （go-toast 干的事）不够。试过两条补法：PowerShell 的 `WScript.Shell` 建快捷方式（不支持设
+  AppUserModelID）、`SHGetPropertyStoreFromParsingName` 打开 .lnk 设属性（`STG_E_ACCESSDENIED`）。
+  能改对的路子是 `IShellLink` → `IPropertyStore` → `IPersistFile::Save`，
+  但那段 COM 代码写完在这台机器上依然看不到横幅，等于「动了用户的开始菜单、效果无法验证」，
+  所以这次不提交。留到能在真机上确认横幅时再补，或者改走打包安装。
+- 顺带记录两条踩过的坑，免得下次再判错：
+  ① `NotifyIcon.ShowBalloonTip`（PowerShell 起进程）在这台机上一点不显示；
+  ② **只拷 `wpndatabase.db` 会看到旧数据**——最近的记录都在 `-wal` 里，
+  我因此一度误判「toast 没进系统」，把结论反过来了一次。
+
+### 自检
+
+`check-account.mjs` +4 项（共 29）：开关存在、默认开着、Windows 上开关与测试按钮都可用、
+点「测试通知」内核返回成功而不是报错。
