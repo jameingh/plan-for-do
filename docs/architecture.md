@@ -225,8 +225,11 @@ type ConditionalChannel interface {
 4. **附件同步**：事项图片已经能存能看（`api.AddItemImage` 落 `dataDir/attachments`，
    经 `/attachments/<file>` 路由显示，上限 5 张），但**只同元数据、文件留本机**——
    换设备会看到「图不在这台设备上」。要真把图传到网盘吗？
-5. **加密与导出**：同步内容默认明文（多维表格才有可读价值）。WebDAV/云盘要不要 AES-GCM？
-   要不要一份与通道解耦的「导出全部 JSON/CSV」本地备份？
+5. **加密与导出**（2026-11-08 做了备份这一半）：与通道解耦的「口令加密全量备份」已落地
+   （`internal/core/backup`：PBKDF2-SHA256 310k 轮 + AES-256-GCM，头部当 AAD；恢复是 LWW 合并、
+   不清库；CLI `plando export/import` + 设置页「备份与恢复」）。
+   **通道本身仍然明文**——那是刻意的：多维表格那侧要能读才有多维表格的意义。
+   要不要再给 WebDAV/云盘快照加一层 AES-GCM、以及 CSV 导出，仍待定。
 6. **多清单本 UI**：内核已支持 `model.List`（默认本「全部」），界面上要不要真分出多本？
    现有分组（日期/分类/四象限）已覆盖大部分需求。
 7. **macOS 分发**：Go 二进制已能在 Windows 用 `-tags purego` 交叉编译（第 10 节），但 .app 打包、签名与公证必须在 Mac 上做。

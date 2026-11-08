@@ -38,6 +38,7 @@ import type {
   CalendarRequest,
   CalendarStatus,
   NotifyInfo,
+  BackupSummary,
   CalendarView,
   ListView,
   ListViewRequest,
@@ -1201,6 +1202,12 @@ export function createMockKernel(): Kernel {
         }));
         return { years, builtinYears: years.map((y) => y.year), localYears: [], dir: "（浏览器 mock 没有数据目录）" };
       }),
+
+    // 浏览器里没有文件对话框，也没有真正的库可导：直接说清楚，别假装导出了一份空文件。
+    PickBackupPath: () => call(() => { throw err("浏览器里没有文件对话框，备份请用桌面端或 plando export"); }),
+    PickBackupFile: () => call(() => { throw err("浏览器里没有文件对话框，恢复请用桌面端或 plando import"); }),
+    ExportBackup: () => call((): BackupSummary => { throw err("浏览器 mock 没有真实数据目录，导不出备份"); }),
+    ImportBackup: () => call((): BackupSummary => { throw err("浏览器 mock 没有真实数据目录，恢复不了备份"); }),
 
     // 浏览器里没有系统通知中心可弹：available=false，界面据此说明「当前只有应用内提醒」。
     NotifyInfo: () => call((): NotifyInfo => ({ available: false, quiet: false })),

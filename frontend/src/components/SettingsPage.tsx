@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { api, bridgeProbe } from "../api/client";
-import type { CalendarStatus, NotifyInfo, SyncConfig, SyncResult, SyncState } from "../api/types";
+import type { BackupSummary, CalendarStatus, NotifyInfo, SyncConfig, SyncResult, SyncState } from "../api/types";
 import { saveSettings, toast, toastErr, useApp } from "../store/appStore";
 import { SingleTab, TopBar } from "./chrome";
 import { Empty, FieldError, I, Modal, Segmented } from "./ui";
@@ -25,6 +25,12 @@ export function SettingsPage() {
   const [states, setStates] = useState<Record<string, SyncState>>({});
   const [probeMsg, setProbeMsg] = useState("");
   const [ninfo, setNinfo] = useState<NotifyInfo | null>(null);
+  // 备份：先选位置/文件，再弹口令（口令只在这个 state 里活一次，不落库、不回显、不打日志）
+  const [bkMode, setBkMode] = useState<"export" | "import" | null>(null);
+  const [bkPath, setBkPath] = useState("");
+  const [bkPw, setBkPw] = useState("");
+  const [bkAtt, setBkAtt] = useState(false);
+  const [bkBusy, setBkBusy] = useState(false);
   // 节假日数据只在设置页要显示，不进 boot 握手：它是「解释界面为什么这样标」的辅助信息，
   // 读失败不该把整页拖成空白。
   const [cal, setCal] = useState<CalendarStatus | null>(null);
@@ -62,6 +68,40 @@ export function SettingsPage() {
       setResults(rs);
       toast(`同步完成（${rs.length} 条通道）`);
     });
+  }
+
+  async function pickBackup(mode: "export" | "import") {
+    try {
+      const p = mode === "export" ? await api.PickBackupPath() : await api.PickBackupFile();
+      if (!p) return; // 用户取消
+      setBkPath(p);
+      setBkPw("");
+      setBkAtt(false);
+      setBkMode(mode);
+    } catch (e) {
+      toastErr(e);
+    }
+  }
+
+  async function runBackup() {
+    if (!bkMode) return;
+    setBkBusy(true);
+    try {
+      const sum: BackupSummary = bkMode === "export"
+        ? await api.ExportBackup(bkPath, bkPw, bkAtt)
+        : await api.ImportBackup(bkPath, bkPw);
+      if (bkMode === "export") {
+        toast(`已导出 ${sum.records} 条记录、${sum.attachments} 个附件（${Math.round(sum.attachmentBytes / 1024)} KB）`);
+      } else {
+        toast(`已恢复：落库 ${sum.applied} 条、冲突 ${sum.conflicts} 条` +
+          (sum.skippedTampered ? `，跳过 ${sum.skippedTampered} 个坏附件` : ""));
+      }
+      setBkMode(null);
+    } catch (e) {
+      toastErr(e);
+    } finally {
+      setBkBusy(false);
+    }
   }
 
   const implTag = api.impl === "wails" ? "Wails 内核" : api.impl === "mock" ? `内存 mock（${bridgeProbe()}）` : "内核探测中…";
@@ -157,6 +197,23 @@ export function SettingsPage() {
           </section>
 
           <section className="set-block">
+            <h5 className="section-title">备份与恢复<i>与同步通道无关的一份加密文件</i></h5>
+            <div className="field-row">
+              <button className="btn" disabled={bkBusy} onClick={() => void pickBackup("export")}>
+                <I n="arrowDown" size={14} />导出备份
+              </button>
+              <button className="btn" disabled={bkBusy} onClick={() => void pickBackup("import")}>
+                <I n="arrowUp" size={14} />恢复备份
+              </button>
+            </div>
+            <p className="muted small">
+              导出的是全量记录（含删除标记）与可选附件，用口令加密后才能打开；文件里没有明文标题。
+              恢复是<b>按最后修改时间合并</b>，不会清掉本机之后新记的东西——旧备份盖不掉新数据；
+              口令丢了就真打不开了，没有后门。
+            </p>
+          </section>
+
+          <section className="set-block">
             <h5 className="section-title">同步通道</h5>
             <div className="field-row">
               <button className="btn" onClick={() => { setIsNew(true); setEditing({ name: "", kind: boot?.channelKinds[0] ?? "localdir", enabled: true, options: {} }); setProbeMsg(""); }}>
@@ -205,6 +262,31 @@ export function SettingsPage() {
           </section>
         </div>
       </main>
+
+      {bkMode && (
+        <Modal title={bkMode === "export" ? "导出加密备份" : "恢复加密备份"} onClose={() => setBkMode(null)}>
+          <p className="muted small" style={{ wordBreak: "break-all" }}>{bkPath}</p>
+          <label className="field">
+            <span>口令（至少 8 个字符）</span>
+            <input className="input" type="password" autoComplete="new-password" value={bkPw}
+              onChange={(e) => setBkPw(e.target.value)}
+              placeholder={bkMode === "export" ? "给这份备份设一个口令" : "输入导出时设的口令"} />
+          </label>
+          {bkMode === "export" && (
+            <label className="nav-item" style={{ cursor: "pointer", width: "auto", padding: "4px 8px" }}>
+              <input className="check-native" type="checkbox" checked={bkAtt} onChange={(e) => setBkAtt(e.target.checked)} />
+              <span className="grow">连附件字节一起导出（体积更大，换设备能直接用）</span>
+            </label>
+          )}
+          <div className="field-row" style={{ justifyContent: "flex-end" }}>
+            <button className="btn" onClick={() => setBkMode(null)}>取消</button>
+            <button className="btn primary" disabled={bkBusy || bkPw.length < 8} onClick={() => void runBackup()}>
+              {bkBusy ? "处理中…" : bkMode === "export" ? "导出" : "恢复"}
+            </button>
+          </div>
+          <p className="muted small">口令只在本机内存里用于这次派生密钥，不落库、不打日志、不回显。</p>
+        </Modal>
+      )}
 
       {editing && (
         <ChannelModal

@@ -13,6 +13,9 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as backup$0 from "./internal/core/backup/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as calendar$0 from "./internal/core/calendar/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -173,6 +176,16 @@ export function DeleteMemoFolder(folderID: string): $CancellablePromise<number> 
 }
 
 /**
+ * ExportBackup 把本地全量写成一份口令加密的备份文件。
+ * 
+ * withAttachments 为真时连附件字节一起带走（体积大但换设备能直接用）；
+ * 为假时只带元数据，恢复后图片仍缺——两条路都留着，界面给勾选。
+ */
+export function ExportBackup(path: string, password: string, withAttachments: boolean): $CancellablePromise<backup$0.Summary> {
+    return $Call.ByID(2358969384, path, password, withAttachments);
+}
+
+/**
  * Focus 单读一条（专注详情页），带回现取的关联任务名。
  */
 export function Focus(focusID: string): $CancellablePromise<service$0.FocusListItem | null> {
@@ -329,6 +342,16 @@ export function HabitUnits(): $CancellablePromise<model$0.HabitUnit[] | null> {
 }
 
 /**
+ * ImportBackup 解开备份并并进本地（LWW，与通道同步同一套规则）。
+ * 
+ * 只合并、不清库：恢复一份旧备份不该把之后新记的东西抹掉。
+ * 要说「整份替换」，那得先把当前库另存一份——那件事不该由一次点击悄悄做掉。
+ */
+export function ImportBackup(path: string, password: string): $CancellablePromise<backup$0.Summary> {
+    return $Call.ByID(1629364559, path, password);
+}
+
+/**
  * ItemImages 取一条事项的图片附件。
  */
 export function ItemImages(itemID: string): $CancellablePromise<model$0.Attachment[] | null> {
@@ -414,6 +437,22 @@ export function NotifyInfo(): $CancellablePromise<{ [_ in string]?: any } | null
  */
 export function OverdueItems(day: model$0.Day): $CancellablePromise<$models.OverdueBundle> {
     return $Call.ByID(4153811828, day);
+}
+
+/**
+ * PickBackupFile 打开「打开文件」对话框。
+ */
+export function PickBackupFile(): $CancellablePromise<string> {
+    return $Call.ByID(728347645);
+}
+
+/**
+ * PickBackupPath 打开「另存为」对话框，返回用户选的路径；空串表示取消。
+ * 
+ * 口令绝不进文件名、不进头部：文件名只带日期，方便一眼认出是哪天的备份。
+ */
+export function PickBackupPath(): $CancellablePromise<string> {
+    return $Call.ByID(1691756836);
 }
 
 /**

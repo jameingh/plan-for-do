@@ -72,6 +72,16 @@ export interface Kernel {
   /** 当前生效的法定节假日数据：覆盖年份、出处、本机导入目录 */
   CalendarInfo(): Promise<import("./types").CalendarStatus>;
 
+  // —— 加密备份 ——
+  /** 打开「另存为」对话框；空串表示用户取消 */
+  PickBackupPath(): Promise<string>;
+  /** 打开「选择备份文件」对话框；空串表示用户取消 */
+  PickBackupFile(): Promise<string>;
+  /** 导出口令加密的全量备份 */
+  ExportBackup(path: string, password: string, withAttachments: boolean): Promise<import("./types").BackupSummary>;
+  /** 恢复一份备份（LWW 合并，不清库） */
+  ImportBackup(path: string, password: string): Promise<import("./types").BackupSummary>;
+
   // —— 系统原生通知 ——
   /** 这台设备有没有真的原生通知落地 + 当前是否被静音 */
   NotifyInfo(): Promise<import("./types").NotifyInfo>;

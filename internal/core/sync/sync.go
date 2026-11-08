@@ -161,6 +161,15 @@ func (e *Engine) Run(ctx context.Context, ch Channel) (Result, error) {
 	return res, nil
 }
 
+// ApplySnapshot 把一份快照并进本地（本地优先的 LWW）。
+//
+// 同步通道走 Run（拉→合并→推），而「从备份恢复」只做合并这一半：
+// 备份是离线文件，没有远端可推；合并规则必须与通道完全一致，
+// 否则同一份数据经备份恢复与经通道同步会得到不同结果。
+func (e *Engine) ApplySnapshot(ctx context.Context, snapshot *Snapshot) (applied, conflicts int, err error) {
+	return e.merge(ctx, snapshot)
+}
+
 // merge 把远端逐条落到本地，返回应用数与冲突数。
 func (e *Engine) merge(ctx context.Context, remote *Snapshot) (applied, conflicts int, err error) {
 	if remote == nil || len(remote.Records) == 0 {

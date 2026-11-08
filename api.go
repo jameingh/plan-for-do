@@ -15,12 +15,14 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
+	"planfordo/internal/core/backup"
 	"planfordo/internal/core/calendar"
 	"planfordo/internal/core/id"
 	"planfordo/internal/core/model"
 	"planfordo/internal/core/service"
 	"planfordo/internal/core/store"
 	plansync "planfordo/internal/core/sync"
+	"planfordo/internal/core/tclock"
 	"planfordo/internal/notify"
 )
 
@@ -894,6 +896,78 @@ func hhmm(c model.ClockTime) string {
 		return string(c)
 	}
 	return string(c)[11:16]
+}
+
+// —— 加密备份（导出 / 恢复）——
+
+// PickBackupPath 打开「另存为」对话框，返回用户选的路径；空串表示取消。
+//
+// 口令绝不进文件名、不进头部：文件名只带日期，方便一眼认出是哪天的备份。
+func (a *API) PickBackupPath() (string, error) {
+	if a.app == nil {
+		return "", fmt.Errorf("当前没有窗口，无法打开文件对话框")
+	}
+	name := fmt.Sprintf("功到备份-%s.planfordo", a.svc.Today())
+	dlg := a.app.Dialog.SaveFile()
+	dlg.SetOptions(&application.SaveFileDialogOptions{Title: "导出加密备份"})
+	dlg.SetFilename(name)
+	dlg.AddFilter("功到加密备份", "*.planfordo")
+	return dlg.PromptForSingleSelection()
+}
+
+// PickBackupFile 打开「打开文件」对话框。
+func (a *API) PickBackupFile() (string, error) {
+	if a.app == nil {
+		return "", fmt.Errorf("当前没有窗口，无法打开文件对话框")
+	}
+	return a.app.Dialog.OpenFile().
+		SetTitle("选择要恢复的备份").
+		AddFilter("功到加密备份", "*.planfordo").
+		PromptForSingleSelection()
+}
+
+// ExportBackup 把本地全量写成一份口令加密的备份文件。
+//
+// withAttachments 为真时连附件字节一起带走（体积大但换设备能直接用）；
+// 为假时只带元数据，恢复后图片仍缺——两条路都留着，界面给勾选。
+func (a *API) ExportBackup(path, password string, withAttachments bool) (backup.Summary, error) {
+	if path == "" {
+		return backup.Summary{}, fmt.Errorf("没有选择保存位置")
+	}
+	file, sum, err := backup.ExportDB(context.Background(), a.db, a.dataDir, password,
+		a.db.DeviceID(), tclock.Now(), withAttachments)
+	if err != nil {
+		return sum, err
+	}
+	if err := os.WriteFile(path, file, 0o600); err != nil {
+		return sum, fmt.Errorf("写备份文件: %w", err)
+	}
+	return sum, nil
+}
+
+// ImportBackup 解开备份并并进本地（LWW，与通道同步同一套规则）。
+//
+// 只合并、不清库：恢复一份旧备份不该把之后新记的东西抹掉。
+// 要说「整份替换」，那得先把当前库另存一份——那件事不该由一次点击悄悄做掉。
+func (a *API) ImportBackup(path, password string) (backup.Summary, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return backup.Summary{}, fmt.Errorf("读备份文件: %w", err)
+	}
+	err = backup.CheckPassword(password)
+	var sum backup.Summary
+	if err == nil {
+		sum, err = backup.ImportFile(context.Background(), raw, password, a.dataDir,
+			func(ctx context.Context, recs []store.Entity) (int, int, error) {
+				return a.syncMgr.Engine().ApplySnapshot(ctx, &plansync.Snapshot{
+					Schema: plansync.SchemaVersion, Records: recs,
+				})
+			})
+	}
+	if err == nil {
+		a.changed("backup")
+	}
+	return sum, err
 }
 
 // —— 系统原生通知 ——

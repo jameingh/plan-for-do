@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"planfordo/internal/core/backup"
 	"planfordo/internal/core/calendar"
 	"planfordo/internal/core/model"
 	"planfordo/internal/core/service"
@@ -19,6 +20,7 @@ import (
 	plansync "planfordo/internal/core/sync"
 	channelfeishu "planfordo/internal/core/sync/channel/feishu"
 	channelwebdav "planfordo/internal/core/sync/channel/webdav"
+	"planfordo/internal/core/tclock"
 )
 
 const usage = `plando — 清单与习惯内核的命令行
@@ -40,6 +42,8 @@ const usage = `plando — 清单与习惯内核的命令行
   calendar [show]            打印法定节假日数据现状（覆盖年份、出处、核对日期）
   calendar day 2026-10-01    查一天的班/休标记
   calendar import <year>.json 导入某一年的节假日表（覆盖内置的同一年）
+  export <文件>              导出口令加密的全量备份（--password 或环境变量 PLANDO_BACKUP_PASSWORD，--with-attachments 连附件字节）
+  import <文件>              恢复一份加密备份（LWW 合并，不清库）
   channels                   列出同步通道配置
   channel localdir --dir P   配置一条通道（--name --kind --disable）
   sync [通道名]              跑一轮同步，省略名字则跑所有启用的通道
@@ -112,6 +116,10 @@ func main() {
 		channel(ctx, db, args)
 	case "sync":
 		syncNow(ctx, db, args)
+	case "export":
+		exportBackup(ctx, db, dir, args)
+	case "import":
+		importBackup(ctx, db, dir, args)
 	case "stats":
 		stats(ctx, db)
 	default:
@@ -665,6 +673,62 @@ func joinYears(years []int) string {
 		out = append(out, fmt.Sprint(y))
 	}
 	return strings.Join(out, ", ")
+}
+
+// backupPassword 取口令：优先环境变量，其次 --password。
+// 命令行参数会进进程列表，所以帮助里先说环境变量。
+func backupPassword(env, fromFlag string) string {
+	if v := os.Getenv("PLANDO_BACKUP_PASSWORD"); v != "" {
+		return v
+	}
+	return fromFlag
+}
+
+func exportBackup(ctx context.Context, db *store.DB, dir string, args []string) {
+	fs := flag.NewFlagSet("export", flag.ExitOnError)
+	pw := fs.String("password", "", "备份口令（也可以用环境变量 PLANDO_BACKUP_PASSWORD）")
+	withAtt := fs.Bool("with-attachments", false, "连附件字节一起导出（体积大，换设备能直接用）")
+	_ = fs.Parse(args)
+	if fs.NArg() < 1 {
+		fail(fmt.Errorf("用法: plando export <文件> [--password ...] [--with-attachments]"))
+	}
+	path := fs.Arg(0)
+	password := backupPassword("", *pw)
+	file, sum, err := backup.ExportDB(ctx, db, dir, password, db.DeviceID(), tclock.Now(), *withAtt)
+	if err != nil {
+		fail(err)
+	}
+	if err := os.WriteFile(path, file, 0o600); err != nil {
+		fail(err)
+	}
+	fmt.Printf("已导出 %s\n  记录 %d 条、附件 %d 个（%d 字节）\n  校验串 %s\n",
+		path, sum.Records, sum.Attachments, sum.AttachmentBytes, backup.Fingerprint(file))
+}
+
+func importBackup(ctx context.Context, db *store.DB, dir string, args []string) {
+	fs := flag.NewFlagSet("import", flag.ExitOnError)
+	pw := fs.String("password", "", "备份口令（也可以用环境变量 PLANDO_BACKUP_PASSWORD）")
+	_ = fs.Parse(args)
+	if fs.NArg() < 1 {
+		fail(fmt.Errorf("用法: plando import <文件> [--password ...]"))
+	}
+	raw, err := os.ReadFile(fs.Arg(0))
+	if err != nil {
+		fail(err)
+	}
+	engine := plansync.NewEngine(db)
+	sum, err := backup.ImportFile(ctx, raw, backupPassword("", *pw), dir,
+		func(ctx context.Context, recs []store.Entity) (int, int, error) {
+			return engine.ApplySnapshot(ctx, &plansync.Snapshot{Schema: plansync.SchemaVersion, Records: recs})
+		})
+	if err != nil {
+		fail(err)
+	}
+	fmt.Printf("已恢复：落库 %d 条（其中 %d 条与本地不同、按最后修改时间判过），附件字节 %d 字节\n",
+		sum.Applied, sum.Conflicts, sum.AttachmentBytes)
+	if sum.SkippedTampered > 0 {
+		fmt.Printf("  跳过 %d 个校验和对不上的附件\n", sum.SkippedTampered)
+	}
 }
 
 func yearOfDay(day string) int {

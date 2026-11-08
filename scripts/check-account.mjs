@@ -130,6 +130,18 @@ const tn = await toastText();
 check("点「测试通知」内核返回成功（不是报错）", /已送出/.test(tn), tn);
 await clickAt(".rail-item", "设置", 700);
 
+console.log("\n=== 设置页：备份与恢复 ===");
+// 文件对话框是操作系统画的，CDP 点不到；这一段只验界面入口与口径文案，
+// 导出/恢复本身由 Go 单测 + CLI 端到端覆盖（plando export/import）。
+const bk = JSON.parse(await evalJs(`(()=>{const s=[...document.querySelectorAll(".set-block")].find(x=>(x.innerText||"").includes("备份与恢复"));` +
+  `if(!s)return JSON.stringify({on:false});const btns=[...s.querySelectorAll(".btn")].map(e=>e.textContent.trim());` +
+  `return JSON.stringify({on:true,btns,text:s.innerText})})()`));
+check("设置页有「备份与恢复」小节", bk.on === true, JSON.stringify(bk).slice(0, 120));
+check("两个入口：导出备份 / 恢复备份", bk.btns.join(",") === "导出备份,恢复备份", JSON.stringify(bk.btns));
+check("文案说明「口令加密、恢复是合并不清库、口令丢了打不开」",
+  /口令加密/.test(bk.text) && /按最后修改时间合并/.test(bk.text) && /不会清掉/.test(bk.text) && /没有后门/.test(bk.text),
+  String(bk.text).slice(0, 100));
+
 console.log("\n=== 预留动作不动数据 ===");
 const before = await evalJs(`document.body.innerText.length`);
 const STUB = /没有账号体系/;

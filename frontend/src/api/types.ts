@@ -566,6 +566,18 @@ export interface Settings {
   quietNative: boolean;
 }
 
+/** 一次导出/导入的结果（内核 backup.Summary）。 */
+export interface BackupSummary {
+  records: number;
+  attachments: number;
+  attachmentBytes: number;
+  applied: number;
+  conflicts: number;
+  skippedTampered: number;
+  createdAt: string;
+  withAttachments: boolean;
+}
+
 /** 原生通知在这台设备上的可用性（内核 NotifyInfo）。 */
 export interface NotifyInfo {
   /** 只有 Windows 有真的落地；其它平台 false，界面要说明而不是假装能开 */
