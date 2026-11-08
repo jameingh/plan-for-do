@@ -5,6 +5,10 @@ name: CI
 # 用 CDP 派发真鼠标键盘事件（scripts/cdp.mjs），Linux/macOS runner 上没有这套东西。
 on:
   push:
+    # 必须显式写 branches：只给 tags-ignore 的话，GitHub 把这个 workflow 当成「只响应 tag 推送」，
+    # 分支 push 一次都不会触发（第一版就是这么静默没跑起来的）。
+    branches:
+      - "**"
     tags-ignore:
       - "v*"          # 打 tag 的发布走 release.yml
   pull_request:
