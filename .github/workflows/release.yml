@@ -1,0 +1,181 @@
+name: Release
+
+# 推 v* 标签就出包并发 GitHub Release；也可以在工作流页面手动触发（产出预发布版本）。
+# 内核是 CGO-free 的（CGO_ENABLED=0 可编译），所以六个目标全部在一台 ubuntu runner 上交叉编译，
+# 不需要 Windows / macOS 主机。构建配方与本地一致：先 npm run build 产出 frontend/dist，
+# 再由 //go:embed 打进二进制。
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "手动触发时用的版本号（留空 = v0.0.0-dev.<short sha>）"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+env:
+  CGO_ENABLED: "0"
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows 走 WebView2（纯 Go 绑定，不需要 purego），是主力平台。
+          # -H=windowsgui 很关键：少了它双击会弹一个控制台窗口。
+          - name: windows-amd64
+            goos: windows
+            goarch: amd64
+            tags: production
+            ldflags: "-s -w -H=windowsgui"
+            exe: ".exe"
+          - name: windows-arm64
+            goos: windows
+            goarch: arm64
+            tags: production
+            ldflags: "-s -w -H=windowsgui"
+            exe: ".exe"
+          # linux / darwin 在 CGO_ENABLED=0 下必须加 wails 的 purego 标签（实验性 CGO-free 后端）。
+          - name: linux-amd64
+            goos: linux
+            goarch: amd64
+            tags: "production purego"
+            ldflags: "-s -w"
+            exe: ""
+          - name: linux-arm64
+            goos: linux
+            goarch: arm64
+            tags: "production purego"
+            ldflags: "-s -w"
+            exe: ""
+          - name: darwin-amd64
+            goos: darwin
+            goarch: amd64
+            tags: "production purego"
+            ldflags: "-s -w"
+            exe: ""
+          - name: darwin-arm64
+            goos: darwin
+            goarch: arm64
+            tags: "production purego"
+            ldflags: "-s -w"
+            exe: ""
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 构建前端产物（会被 //go:embed 打进二进制）
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 交叉编译
+        run: |
+          out=planfordo-${{ matrix.name }}${{ matrix.exe }}
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
+            go build -tags "${{ matrix.tags }}" -trimpath -buildvcs=false \
+              -ldflags="${{ matrix.ldflags }}" -o "$out" .
+          ls -l "$out"
+          file "$out" || true
+
+      - name: 打包 zip + 校验和
+        run: |
+          # 版本号：tag 推送用 tag 名；手动触发（分支 ref）用 v0.0.0-dev.<short sha>，
+          # 与 release job 里算 TAG 的规则必须一致，否则产物名和 Release 对不上。
+          if [[ "$GITHUB_REF_NAME" == v* ]]; then VERSION="$GITHUB_REF_NAME"; else VERSION="v0.0.0-dev.${GITHUB_SHA::7}"; fi
+          pkg=planfordo-$VERSION-${{ matrix.name }}
+          mkdir -p "$pkg"
+          mv planfordo-${{ matrix.name }}${{ matrix.exe }} "$pkg/"
+          cp README.md "$pkg/" 2>/dev/null || true
+          zip -r "$pkg.zip" "$pkg" -q
+          sha256sum "$pkg.zip" > "$pkg.zip.sha256"
+          ls -l "$pkg.zip" "$pkg.zip.sha256"
+          echo "PKG=$pkg" >> $GITHUB_ENV
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.name }}
+          path: |
+            ${{ env.PKG }}.zip
+            ${{ env.PKG }}.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: 创建 Release
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: 汇总校验和
+        run: |
+          cd dist
+          sha256sum *.zip > checksums.txt
+          ls -l
+          cat checksums.txt
+
+      - name: 创建（或更新）Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          if [[ "$GITHUB_REF_NAME" == v* ]]; then
+            TAG="$GITHUB_REF_NAME"; PRERELEASE=""
+          else
+            TAG="${INPUT_VERSION:-v0.0.0-dev.${GITHUB_SHA::7}}"; PRERELEASE="--prerelease"
+          fi
+          echo "Release 版本：$TAG"
+          NOTES=$(cat <<'NOTES'
+          本地优先的清单 / 习惯 / 视图 / 专注 / 备忘录应用「功到」。
+
+          - `windows-amd64` 是主力包，已实测；双击即用，不会弹控制台窗口。
+          - `windows-arm64` 编译通过但未在 ARM 实机上验证。
+          - `linux-*` / `darwin-*` 走 Wails 的 CGO-free 实验后端（purego）：Linux 运行需要系统装好 WebKitGTK，
+            macOS 包未签名（首次打开要在「系统设置 → 隐私与安全性」里允许，或 `xattr -d com.apple.quarantine`）。
+          - 每个包都是绿色便携版，解压即用；数据默认写在系统配置目录下的 `planfordo/`。
+          - 校验和见 `checksums.txt`（`sha256sum -c checksums.txt`）。
+
+          改动明细见「自动生成更新日志」。
+          NOTES
+          )
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG 已存在，覆盖上传产物"
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* \
+              --target "$GITHUB_SHA" \
+              $PRERELEASE \
+              --generate-notes \
+              --title "功到 $TAG" \
+              --notes "$NOTES"
+          fi
+          echo "### 已发布" >> "$GITHUB_STEP_SUMMARY"
+          echo "https://github.com/${{ github.repository }}/releases/tag/$TAG" >> "$GITHUB_STEP_SUMMARY"
+          gh release view "$TAG" --json tagName,assets -q '.tagName + " → " + ([.assets[].name] | join(", "))' >> "$GITHUB_STEP_SUMMARY"
