@@ -6,6 +6,8 @@ import { spawnSync } from "node:child_process";
 
 const PORT = process.argv[2] || "9256";
 const OUT = process.argv[3] || "tmp/focus";
+import fs from "node:fs";
+fs.mkdirSync(OUT, { recursive: true });
 const at = (sel, text) => `(()=>{const L=[...document.querySelectorAll(${JSON.stringify(sel)})];` +
   `const e=${text ? `L.filter(x=>(x.innerText||"").includes(${JSON.stringify(text)}))` : "L"}[0];` +
   `if(!e)return {x:0,y:0};const r=e.getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)}})()`;

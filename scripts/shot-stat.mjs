@@ -3,6 +3,8 @@
 import { spawnSync } from "node:child_process";
 const PORT = process.argv[2] || "9256";
 const OUT = process.argv[3] || "tmp/stat";
+import fs from "node:fs";
+fs.mkdirSync(OUT, { recursive: true });
 const at = (sel, text) => `(()=>{const e=[...document.querySelectorAll(${JSON.stringify(sel)})].find(x=>(x.innerText||"").includes(${JSON.stringify(text)}));const r=e.getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)}})()`;
 const run = (...a) => spawnSync("node", ["scripts/cdp.mjs", PORT, ...a], { stdio: "inherit", shell: false });
 run("click", at(".gtab", "习惯统计"));
