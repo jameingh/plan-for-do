@@ -69,6 +69,8 @@ export interface Kernel {
   SetItemTop(itemID: string, top: boolean): Promise<void>;
   /** 月历格子的农历与节日，一次给整月 */
   LunarLabels(days: Day[]): Promise<import("./types").LunarCell[]>;
+  /** 当前生效的法定节假日数据：覆盖年份、出处、本机导入目录 */
+  CalendarInfo(): Promise<import("./types").CalendarStatus>;
   /** 事项图片：base64 上传（WebView2 不暴露 File.path），最多 5 张 */
   AddItemImage(itemID: string, name: string, dataBase64: string): Promise<import("./types").Attachment>;
   ItemImages(itemID: string): Promise<import("./types").Attachment[]>;

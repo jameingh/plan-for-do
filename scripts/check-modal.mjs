@@ -1,9 +1,12 @@
 // 弹窗逐项自检：用真实鼠标事件把新建/详情弹窗的每个面板点一遍，边点边断言界面与内核状态。
 // 用法：node scripts/check-modal.mjs [端口]   （默认 9255，需先用 scripts/verify-restart.sh 起隔离实例）
 // 只动隔离数据目录，不碰用户真实数据。
-import { today } from "./lib/d.mjs";
+import { addDays, monthDays, today } from "./lib/d.mjs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 const port = process.argv[2] || "9255";
 const fs = await import("node:fs");
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const res = await fetch(`http://127.0.0.1:${port}/json/list`);
 const list = await res.json();
@@ -345,6 +348,87 @@ await click(centerOf(".item-modal.is-create .cc-btn", "保存"));
 await sleep(600);
 console.log("  待核对：" + absLabel + "（无日期事项，CLI reminders 应报出 " + abs.t + "）");
 check("自定义提醒条目已写进芯片", /\d{2}月\d{2}日 \d{2}:\d{2}/.test(absLabel), absLabel);
+
+console.log("\n=== 日期面板的班/休角标（对照内置节假日表）===");
+// 期望值直接读内核 //go:embed 的那几份 JSON：界面和内核共用同一份数据，
+// 这一段要验的是「内核判出来了」到「格子画出来了」之间那一跳。
+const markOf = new Map();
+const srcOfYear = {};
+for (const f of fs.readdirSync(path.join(ROOT, "internal", "core", "calendar", "data")).filter((n) => n.endsWith(".json")).sort()) {
+  const t = JSON.parse(fs.readFileSync(path.join(ROOT, "internal", "core", "calendar", "data", f), "utf8"));
+  srcOfYear[t.year] = t.source;
+  for (const d of t.holidays ?? []) markOf.set(d, "休");
+  for (const d of t.makeupWorkdays ?? []) markOf.set(d, "班");
+}
+const lastYear = Math.max(...Object.keys(srcOfYear).map(Number));
+// 从今天往后找一个「有假日的月份」；找不到说明内置表过期了，那是数据要更新，不是界面的错。
+let targetMonth = "";
+for (let i = 0; i < 400 && !targetMonth; i++) {
+  const d = addDays(today(), i);
+  if (markOf.get(d) === "休") targetMonth = d.slice(0, 7);
+}
+if (!targetMonth) {
+  console.log(`  待核对：内置节假日表只覆盖到 ${lastYear} 年，今天的日期已超出，角标断言跳过（该补下一年的表了）`);
+} else {
+  await openCreate();
+  await click(centerOf(".item-modal.is-create .cc-chip", "月"));
+  const arrow = (i) => `(()=>{const e=document.querySelectorAll(".pop-panel .cal-head .cal-arrow")[${i}];` +
+    `const r=e.getBoundingClientRect();return JSON.stringify({x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)})})()`;
+  // 面板标题是「2027年01月」这种补零写法，monthCN 给的是「2027年1月」，
+  // 所以两边都先归一成 YYYY-MM 再比，别拿字符串硬碰。
+  const normMonth = (t) => {
+    const m = /(\d{4})年(\d{1,2})月/.exec(t || "");
+    return m ? `${m[1]}-${String(Number(m[2])).padStart(2, "0")}` : "";
+  };
+  for (let i = 0; i < 24; i++) {
+    const cur = normMonth(await evalJs(`document.querySelector(".pop-panel .cal-title")?.textContent||""`));
+    if (cur === targetMonth) break;
+    await click(arrow(cur > targetMonth ? 0 : 1), 260); // 0 = 上个月，1 = 下个月
+  }
+  const title = await evalJs(`document.querySelector(".pop-panel .cal-title")?.textContent||""`);
+  check("日期面板切到目标月 " + targetMonth, normMonth(title) === targetMonth, title);
+
+  const cells = JSON.parse(await evalJs(`(()=>{const out=[];for(const e of document.querySelectorAll(".pop-panel .cal-day")){` +
+    `if(!e.classList.contains("is-same"))continue;const m=e.querySelector(".cal-mark");const b=e.getBoundingClientRect();` +
+    `out.push({n:Number(e.querySelector(".cal-num").textContent),mark:m?m.textContent:"",` +
+    `tip:e.getAttribute("title")||"",fit:m?((r)=>r.left>=b.left-2&&r.right<=b.right+2&&r.top>=b.top-2)(m.getBoundingClientRect()):true});}` +
+    `return JSON.stringify(out)})()`));
+  // monthDays 要的是 "YYYY-MM"，不是某个日期——传错会得到 "2027-01-01-01" 这种日子，
+  // 于是 markOf 全部查不到，看起来像「界面没画角标」其实是断言自己写错。
+  const days = monthDays(targetMonth);
+  check("格子数 = 当月天数", cells.length === days.length, cells.length + " vs " + days.length);
+  const bad = cells.filter((c, i) => (c.mark || "") !== (markOf.get(days[i]) || ""));
+  check("每格的班/休与内置表逐日一致", bad.length === 0, JSON.stringify(bad.slice(0, 4)));
+  const offDays = cells.filter((c) => c.mark === "休");
+  const onDays = cells.filter((c) => c.mark === "班");
+  check(`${targetMonth} 的「休」角标数 = 内置表该月休日数`,
+    offDays.length === days.filter((d) => markOf.get(d) === "休").length, offDays.length + " 个");
+  check(`${targetMonth} 的「班」角标数 = 内置表该月补班数`,
+    onDays.length === days.filter((d) => markOf.get(d) === "班").length, onDays.length + " 个");
+  check("角标没有越出格子（不会被相邻格子压住）", cells.every((c) => c.fit), JSON.stringify(cells.filter((c) => !c.fit).slice(0, 3)));
+  if (offDays.length) {
+    const tip = offDays[0].tip;
+    check("「休」的 tooltip 交代了依据与出处", tip.includes("法定节假日") && tip.includes(srcOfYear[Number(targetMonth.slice(0, 4))]), tip);
+  }
+  // 选中那天之后角标还在，并且换成了反色（实心绿底上留着浅底色就看不清了）。
+  // 颜色一律跟「同一个面板里没选中的那颗角标」比，不写死 rgb 值：
+  // Chrome 会把 color-mix 序列化成 color(srgb 1 1 1 / .28)，按字面断言迟早误报。
+  await click(`(()=>{const e=[...document.querySelectorAll(".pop-panel .cal-day")].find(x=>x.classList.contains("is-same")&&x.querySelector(".cal-mark"));` +
+    `const r=e.getBoundingClientRect();return JSON.stringify({x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)})})()`);
+  const sel = JSON.parse(await evalJs(`(()=>{const g=(e)=>{const m=e.querySelector(".cal-mark");if(!m)return null;` +
+    `const cs=getComputedStyle(m);return {t:m.textContent,color:cs.color,bg:cs.backgroundColor}};` +
+    `const sel=document.querySelector(".pop-panel .cal-day.is-click .cal-mark")?` +
+    `g(document.querySelector(".pop-panel .cal-day.is-click")):null;` +
+    `const plain=[...document.querySelectorAll(".pop-panel .cal-day")].find(e=>!e.classList.contains("is-click")&&e.querySelector(".cal-mark"));` +
+    `return JSON.stringify({sel,plain:plain?g(plain):null})})()`));
+  check("选中格的角标仍在", !!sel.sel, JSON.stringify(sel));
+  check("选中格的角标底色与未选中格不同（反色生效）",
+    !!sel.sel && !!sel.plain && sel.sel.bg !== sel.plain.bg && sel.sel.color !== sel.plain.color,
+    JSON.stringify(sel));
+  await closePanels();
+  await evalJs(`(()=>{const b=document.querySelector(".item-modal .cc-btn");if(b)b.click();return 1})()`);
+  await sleep(200);
+}
 
 console.log("\n结果：通过 " + pass + "，失败 " + fail);
 ws.close();

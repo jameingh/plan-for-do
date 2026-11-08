@@ -100,6 +100,19 @@ await clickAt(".ac-return", null, 600);
 const backSettings = JSON.parse(await evalJs(`(()=>JSON.stringify({account:!!document.querySelector(".account-page"),settings:!!document.querySelector(".set-block")}))()`));
 check("从设置页进的，返回回设置页", backSettings.account === false && backSettings.settings === true, JSON.stringify(backSettings));
 
+console.log("\n=== 设置页：节假日与调休 ===");
+// 这一节是「班/休」与「法定工作日」的数据交代处：覆盖哪几年、出处、往哪导入，都得看得见。
+const cal = JSON.parse(await evalJs(`(()=>{const b=[...document.querySelectorAll(".set-block")];` +
+  `const s=b.find(x=>(x.innerText||"").includes("节假日与调休"));if(!s)return JSON.stringify({on:false});` +
+  `return JSON.stringify({on:true,title:s.querySelector(".section-title")?.innerText||"",` +
+  `chips:[...s.querySelectorAll(".env-chips i")].map(e=>e.innerText.trim()),` +
+  `dir:(s.querySelector(".env-val.is-mono")||{}).innerText||"",note:(s.querySelector("p")||{}).innerText||""})})()`));
+check("设置页有「节假日与调休」小节", cal.on === true, JSON.stringify(cal).slice(0, 120));
+check("生效年份至少覆盖今年与明年", cal.chips.length >= 2 && cal.chips.some((c) => c.startsWith(String(new Date().getFullYear()))), JSON.stringify(cal.chips));
+check("每个年份 chip 给出休/班条数", cal.chips.every((c) => /休\d+·班\d+/.test(c)), JSON.stringify(cal.chips));
+check("数据目录指向 vdata/calendars", /calendars/.test(cal.dir) && /vdata/.test(cal.dir), cal.dir);
+check("说明写清「表没覆盖的年份会退化」", /退化/.test(cal.note) && /猜/.test(cal.note), cal.note.slice(0, 80));
+
 console.log("\n=== 预留动作不动数据 ===");
 const before = await evalJs(`document.body.innerText.length`);
 const STUB = /没有账号体系/;

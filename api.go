@@ -52,7 +52,7 @@ func NewAPI(dataDir string) (*API, error) {
 	}
 	// 节假日数据缺失是正常状态（返回 nil，规则退化），但文件损坏必须当场报出来，
 	// 否则「法定工作日」会静默按普通周一至周五算。
-	cal, err := calendar.Load(filepath.Join(dataDir, "calendars"))
+	cal, err := calendar.Open(filepath.Join(dataDir, "calendars"))
 	if err != nil {
 		db.Close()
 		return nil, err
@@ -122,15 +122,19 @@ func (a *API) Start() (BootInfo, error) {
 	return info, nil
 }
 
-// SaveCalendarYear 写入某一年的法定节假日与调休数据。
+// SaveCalendarYear 写入某一年的法定节假日与调休数据，覆盖内置的同一年。
 //
-// 数据本身不内置：每年由国务院办公厅公布，程序不该猜。这里只负责把用户/导入脚本
-// 提供的表落到 dataDir/calendars/<year>.json，重新打开后生效。
+// 内置表已覆盖官方公布的年份（见 internal/core/calendar/builtin.go），这个入口是给
+// 「官方补发通知后想马上生效」和「内置年份之外」两种情况用的：把表落到
+// dataDir/calendars/<year>.json，重新加载后立刻生效，不用等下一版程序。
 func (a *API) SaveCalendarYear(t calendar.Table) error {
+	if err := t.Validate(); err != nil {
+		return err
+	}
 	if err := calendar.Write(filepath.Join(a.dataDir, "calendars"), t); err != nil {
 		return err
 	}
-	cal, err := calendar.Load(filepath.Join(a.dataDir, "calendars"))
+	cal, err := calendar.Open(filepath.Join(a.dataDir, "calendars"))
 	if err != nil {
 		return err
 	}
@@ -138,6 +142,13 @@ func (a *API) SaveCalendarYear(t calendar.Table) error {
 	a.svc.SetCalendar(cal)
 	a.changed("calendar")
 	return nil
+}
+
+// CalendarInfo 返回当前生效的节假日数据：逐年出处、条数、来源（内置 / 本机导入），
+// 外加内置覆盖的年份与文件落点。设置页显示它，用户才知道「班/休」是谁安排的、
+// 表覆盖到哪一年，也才知道可以往哪个目录放一份 <year>.json 来顶掉内置。
+func (a *API) CalendarInfo() calendar.Status {
+	return calendar.StatusOf(a.calendar, filepath.Join(a.dataDir, "calendars"))
 }
 
 // emit 在前端尚未挂载（CLI、单元测试）时安静跳过。
@@ -268,9 +279,14 @@ type LunarCell struct {
 	// 节气名（立冬/小雪…），只在当天恰是二十四节气之一时给。
 	// 视图网格要按参考站的样子把节气用彩色标出来，所以它与节日分开返回，由界面决定优先级。
 	Term string `json:"term,omitempty"`
-	// 周末（周六/周日）。法定节假日与调休的「班/休」需要外部数据源，本项目还没有，
-	// 所以视图格子里只标周末，不标班休——宁可少标，不标错。
+	// 周末（周六/周日）。
 	Weekend bool `json:"weekend,omitempty"`
+	// 班休标记：「休」= 法定节假日，「班」= 调休要上班的周末，空 = 普通日子。
+	// 只有内置或本机导入的年度表覆盖到这天才有值——表没覆盖的年份宁可少标，不标错。
+	Mark string `json:"mark,omitempty"`
+	// MarkSource 是这天所属年份的数据出处，界面 tooltip 用得上：
+	// 用户看到「休」会问依据是什么。
+	MarkSource string `json:"markSource,omitempty"`
 }
 
 // LunarLabels 把公历日期批量换成农历日名与节日名，供日期面板的月历使用。
@@ -294,6 +310,11 @@ func (a *API) LunarLabels(days []model.Day) ([]LunarCell, error) {
 			cell.Festival = calendar.Festival(y, m, dd)
 			wd := time.Date(y, time.Month(m), dd, 0, 0, 0, 0, time.Local).Weekday()
 			cell.Weekend = wd == time.Saturday || wd == time.Sunday
+			// 班/休：表没覆盖这年时 Mark 是空串，格子退回只显示周末——宁可少标，不标错。
+			cell.Mark = a.calendar.Mark(d)
+			if cell.Mark != "" {
+				cell.MarkSource = a.calendar.SourceOf(y)
+			}
 		}
 		out = append(out, cell)
 	}

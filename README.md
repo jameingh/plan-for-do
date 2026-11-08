@@ -17,7 +17,7 @@
 | 习惯 | 每天一次 / 每天多次（量化 + 单位）、情境分段、按排期日历打卡、可回溯补打卡、心得、新建引导模式（微启动分步提问），以及「习惯统计」四页签（日/周/月/年：打卡格子、完美打卡、连续天数、全年热力图） |
 | 专注 | 正计时 / 番茄钟 / 倒计时三个子模块，都能关联任务；沉浸式计时、暂停与结束确认、结算页与专注心得、专注详情页（含事件时间轴）；数据页有统计分析（累计与今日总览、时长分布、全时段热图、时长分解、补记与历史列表）与数据分布（日/月/年） |
 | 备忘录 | 文件夹管理 + 拖拽排序、搜索（回车触发、命中词高亮）、按创建/修改时间排序、置顶、右键菜单、富文本编辑器（字体/字号/颜色/对齐/列表/复选框/背景）、附件、回收站与彻底删除 |
-| 设置 | 运行环境（握手信息）、偏好（默认分组 / 主题 / 新建习惯模式 / 显示已打卡）、同步通道配置与「立即同步」 |
+| 设置 | 运行环境（握手信息）、节假日与调休（覆盖年份 / 出处 / 导入目录）、偏好（默认分组 / 主题 / 新建习惯模式 / 显示已打卡）、同步通道配置与「立即同步」 |
 
 ## 架构
 
@@ -27,6 +27,7 @@ cmd/plando                  同内核的命令行：add / clock / habit / habit-
 internal/core/model         领域对象（不依赖 UI、驱动、同步实现；iOS 将来直接复用）
 internal/core/store         单表 entity（kind,id + JSON data + 派生列 day/parent/status/sort），纯 Go sqlite
 internal/core/repeat        重复规则展开、override、节假日
+internal/core/calendar      农历/节气/节日换算 + 内置法定节假日与调休年度表（可被本机导入覆盖）
 internal/core/service       用例：清单 / 习惯 / 视图 / 专注 / 备忘录 / 提醒 / 统计
 internal/core/sync          合并引擎（记录级 LWW + tombstone 全量快照）+ 通道接口
 internal/core/sync/channel  feishuBase / feishuDrive / webdav / localdir
@@ -62,6 +63,8 @@ go build -o bin/plando.exe ./cmd/plando
 ./bin/plando.exe habit-clock "晨跑" --day 2026-11-08
 ./bin/plando.exe focus --type pomo --minutes 25 --cycles 4 --item "写周报"
 ./bin/plando.exe sync            # 跑所有启用的通道
+./bin/plando.exe calendar        # 节假日数据覆盖了哪几年、出处、导入目录
+./bin/plando.exe calendar day 2026-10-01     # 查一天的班/休
 ./bin/plando.exe where           # 数据目录与设备 ID
 ```
 
@@ -93,13 +96,13 @@ bash scripts/verify-restart.sh 9256 focus && bash scripts/seed-focus.sh && node 
 
 | 脚本 | 覆盖 | 项数 |
 | --- | --- | --- |
-| `check-modal.mjs` | 新建/详情弹窗逐面板（日期、时间、重复、提醒、标签、优先级、子任务、结束） | 57 |
+| `check-modal.mjs` | 新建/详情弹窗逐面板（日期、时间、重复、提醒、标签、优先级、子任务、结束）+ 班/休角标 | 66 |
 | `check-habit.mjs` | 新建习惯弹窗（图标、频率、单位、情境、提醒、引导模式） | 66 |
-| `check-view.mjs` | 日/周/月视图、跨天条、折叠、自定义视图、两个开关 | 63 |
+| `check-view.mjs` | 日/周/月视图、跨天条、折叠、自定义视图、两个开关、班/休角标 | 67 |
 | `check-stat.mjs` | 习惯统计四页签（含内核记录反查） | 45 |
 | `check-memo.mjs` | 备忘录（列表、编辑器、文件夹、回收站、搜索排序） | 81 |
 | `check-focus.mjs` | 专注三计时器 + 关联任务 + 沉浸/结算/详情 + 数据页（含番茄真等 62 秒） | 102 |
-| `check-mask.mjs` / `check-account.mjs` | 遮罩与层级、头像菜单与个人中心 | 23 / 20 |
+| `check-mask.mjs` / `check-account.mjs` | 遮罩与层级、头像菜单与个人中心、节假日数据交代 | 23 / 25 |
 
 种子与断言一律用**相对日期**（`scripts/lib/d.mjs`：本周一 `m N` / 今天 `d N`），所以脚本跑在哪一天都成立；
 每个脚本都要按它开头注释里的 start tab 重启实例后再跑，共用实例会被上一个脚本的页面状态污染出假失败。
@@ -128,7 +131,10 @@ git tag v0.1.0 && git push origin v0.1.0
 - 没有账号体系：个人中心与登录入口是占位，同步靠通道而不是云端账号。
 - 专注的「进行中」独占只在本机生效：两台设备各开一次专注会留下两条未结束记录，跨设备互斥没做。
 - 关掉应用期间不会继续计时（这是设计：恢复时最多补一个心跳周期，避免把没在的时间算成专注）。
-- 法定节假日与调休数据源、系统原生通知、附件字节同步、加密导出还没做。
+- 法定节假日与调休：**已内置 2025–2027 三年**（国务院办公厅通知逐条核对，`internal/core/calendar/data/`），
+  表没覆盖的年份（2028 起）仍按普通周一至周五算，官方公布后加一份年度表即可。
+- 系统原生通知、附件字节同步、加密导出还没做：提醒只在应用内浮出，换设备看不到事项图片，
+  同步快照默认明文（多维表格才有可读价值）。
 
 ## 许可证
 

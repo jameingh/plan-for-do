@@ -454,10 +454,10 @@ type FocusRecord struct {
 	StartAt ClockTime `json:"startAt,omitempty"` // 补记为空：不伪造时间戳
 	EndAt   ClockTime `json:"endAt,omitempty"`
 
-	AccumSec     int       `json:"accumSec"`               // 已折入的专注秒数
+	AccumSec int `json:"accumSec"` // 已折入的专注秒数
 	// RoundBase 是「本轮专注开始时累计到哪儿」，番茄钟算本轮剩余要减掉它。
 	// 少了这个字段，第二轮会拿全程累计去减一轮的目标，一休息完就「已超时」，直接冲到最后一轮。
-	RoundBase int `json:"roundBase"`
+	RoundBase    int       `json:"roundBase"`
 	SegmentStart ClockTime `json:"segmentStart,omitempty"` // 非空 = 这一段正在走
 	TargetSec    int       `json:"targetSec"`              // 计划时长；正计时不设目标时为 0
 	ActualSec    int       `json:"actualSec"`              // 结束时定格的实际专注秒数（不含休息）

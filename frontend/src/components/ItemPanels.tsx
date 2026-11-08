@@ -159,10 +159,11 @@ export function DatePanel({ value, onCommit, onClose, variant = "full" }: {
           return (
             <button key={d}
               className={"cal-day" + (inMonth ? " is-same" : "") + (inRange ? " is-click" : "") + (d === today ? " is-today" : "")}
-              title={[cell?.festival, cell?.lunar && "农历" + cell.lunar].filter(Boolean).join(" · ") || format(d)}
+              title={[cell?.festival, cell?.lunar && "农历" + cell.lunar, cell?.mark && (cell.mark === "休" ? "法定节假日" : "调休上班") + (cell.markSource ? "（" + cell.markSource + "）" : "")].filter(Boolean).join(" · ") || format(d)}
               onClick={() => pick(d)}>
               <span className="cal-num">{Number(d.slice(8))}</span>
               <span className="cal-lunar">{cell?.festival || cell?.lunar || ""}</span>
+              {cell?.mark ? <span className={"cal-mark" + (cell.mark === "休" ? " is-off" : " is-work")}>{cell.mark}</span> : null}
             </button>
           );
         })}

@@ -37,6 +37,9 @@ const usage = `plando — 清单与习惯内核的命令行
   focus                      补记一条专注记录（--type up|pomo|down --day --minutes --cycles --item --note）
   focuses                    列出专注记录（累计）
   reminders                  打印未来 7 天的提醒
+  calendar [show]            打印法定节假日数据现状（覆盖年份、出处、核对日期）
+  calendar day 2026-10-01    查一天的班/休标记
+  calendar import <year>.json 导入某一年的节假日表（覆盖内置的同一年）
   channels                   列出同步通道配置
   channel localdir --dir P   配置一条通道（--name --kind --disable）
   sync [通道名]              跑一轮同步，省略名字则跑所有启用的通道
@@ -63,7 +66,7 @@ func main() {
 		fail(err)
 	}
 	defer db.Close()
-	cal, err := calendar.Load(filepath.Join(dir, "calendars"))
+	cal, err := calendar.Open(filepath.Join(dir, "calendars"))
 	if err != nil {
 		fail(err)
 	}
@@ -101,6 +104,8 @@ func main() {
 		focusList(ctx, svc)
 	case "reminders":
 		reminders(ctx, svc)
+	case "calendar":
+		calendarCmd(dir, cal, args)
 	case "channels":
 		channels(ctx, db)
 	case "channel":
@@ -584,6 +589,96 @@ func reminders(ctx context.Context, svc *service.App) {
 	for _, f := range fires {
 		fmt.Printf("%s  %s  %s\n", f.At, f.Day, f.Title)
 	}
+}
+
+// calendarCmd 打印/导入法定节假日数据。「plando calendar」看现状，
+// 「plando calendar import 2028.json」补一年，「plando calendar day 2026-10-01」查一天。
+func calendarCmd(dir string, cal *calendar.FS, args []string) {
+	calDir := filepath.Join(dir, "calendars")
+	sub := "show"
+	if len(args) > 0 {
+		sub = args[0]
+	}
+	switch sub {
+	case "show":
+		st := calendar.StatusOf(cal, calDir)
+		fmt.Printf("节假日数据目录: %s\n内置覆盖年份: %s\n本机覆盖: %s\n",
+			calDir, joinYears(st.BuiltinYears), joinYears(st.LocalYears))
+		for _, y := range st.Years {
+			from := "内置"
+			if y.Origin == calendar.OriginLocal {
+				from = "本机导入"
+			}
+			fmt.Printf("  %d  放假 %2d 天 / 补班 %d 天  %-6s  %s（核对 %s）\n",
+				y.Year, y.HolidayCount, y.MakeupCount, from, y.Source, y.LastVerified)
+		}
+		if len(st.Years) > 0 {
+			last := st.Years[len(st.Years)-1].Year
+			fmt.Printf("  注：%d 年及以后没有数据，「法定工作日」与「跳过节假日」在那些年退化成普通周一至周五。\n", last+1)
+		}
+	case "day":
+		if len(args) < 2 {
+			fail(fmt.Errorf("用法: plando calendar day 2026-10-01"))
+		}
+		day := args[1]
+		mark := cal.Mark(day)
+		switch mark {
+		case "休":
+			fmt.Printf("%s 法定节假日（休）\n来源: %s\n", day, cal.SourceOf(yearOfDay(day)))
+		case "班":
+			fmt.Printf("%s 调休上班（班）\n来源: %s\n", day, cal.SourceOf(yearOfDay(day)))
+		default:
+			if wd := weekdayName(day); wd != "" {
+				fmt.Printf("%s 普通%s（无班/休标记；该年有没有数据见 plando calendar show）\n", day, wd)
+			} else {
+				fail(fmt.Errorf("日期 %q 不是 YYYY-MM-DD", day))
+			}
+		}
+	case "import":
+		if len(args) < 2 {
+			fail(fmt.Errorf("用法: plando calendar import <year>.json"))
+		}
+		raw, err := os.ReadFile(args[1])
+		if err != nil {
+			fail(err)
+		}
+		var t calendar.Table
+		if err := json.Unmarshal(raw, &t); err != nil {
+			fail(fmt.Errorf("解析 %s: %w", args[1], err))
+		}
+		if err := calendar.Write(calDir, t); err != nil {
+			fail(err) // Write 里做校验：写坏表比写不进去更糟
+		}
+		fmt.Printf("已写入 %s（%d 年，放假 %d 天、补班 %d 天）\n",
+			filepath.Join(calDir, fmt.Sprintf("%d.json", t.Year)), t.Year, len(t.Holidays), len(t.MakeupDays))
+	default:
+		fail(fmt.Errorf("未知子命令 %q（可用：show / day / import）", sub))
+	}
+}
+
+func joinYears(years []int) string {
+	if len(years) == 0 {
+		return "无"
+	}
+	out := make([]string, 0, len(years))
+	for _, y := range years {
+		out = append(out, fmt.Sprint(y))
+	}
+	return strings.Join(out, ", ")
+}
+
+func yearOfDay(day string) int {
+	var y int
+	fmt.Sscanf(day, "%d-", &y)
+	return y
+}
+
+func weekdayName(day string) string {
+	t, err := time.Parse("2006-01-02", day)
+	if err != nil {
+		return ""
+	}
+	return []string{"周日", "周一", "周二", "周三", "周四", "周五", "周六"}[int(t.Weekday())]
 }
 
 func channels(ctx context.Context, db *store.DB) {

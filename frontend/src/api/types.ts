@@ -35,8 +35,33 @@ export interface LunarCell {
   festival: string;
   /** 节气名（立冬/小雪…），当天不是节气则为空 */
   term?: string;
-  /** 周六/周日。法定节假日与调休的「班/休」需要外部数据源，本项目还没有，所以只标周末 */
+  /** 周六/周日 */
   weekend?: boolean;
+  /** 班休标记：「休」= 法定节假日，「班」= 调休上班的周末，空 = 普通日子。
+   *  内置年度表（2025-2027）覆盖之外的一年没有标记——宁可少标，不标错。 */
+  mark?: string;
+  /** 该标记的数据出处，tooltip 用 */
+  markSource?: string;
+}
+
+/** 某一年的节假日数据来源（内核 calendar.YearInfo）。 */
+export interface CalendarYearInfo {
+  year: number;
+  /** builtin = 程序内置，local = 本机导入并覆盖了内置的同一年 */
+  origin: string;
+  holidayCount: number;
+  makeupCount: number;
+  source: string;
+  lastVerified: string;
+}
+
+/** 当前生效的节假日数据全貌（内核 calendar.Status）。 */
+export interface CalendarStatus {
+  years: CalendarYearInfo[];
+  builtinYears: number[];
+  localYears: number[];
+  /** 放 <year>.json 即可覆盖内置同一年的目录 */
+  dir: string;
 }
 
 /** 事项图片附件。文件本体在 dataDir/attachments，经 /attachments/<file> 读取。 */

@@ -389,6 +389,7 @@ function MonthGrid({ days, byDay, lunar, today, cfg, nav, onBar, onHabit, onCell
                     onClick={(e) => onCell(d, (e.currentTarget as HTMLElement).getBoundingClientRect())}
                     aria-label={`${d} 当天安排`}>
                     <span className="vm-num">{d === today ? "今" : Number(d.slice(8, 10))}</span>
+                    {lunar[d]?.mark ? <i className={"v-mark" + (lunar[d].mark === "休" ? " is-off" : " is-work")}>{lunar[d].mark}</i> : null}
                     <span className="vm-vice">{lunar[d]?.festival || lunar[d]?.term || lunar[d]?.lunar || ""}</span>
                     {/* 「还有 N 个任务」跟在抬头这一行，与参考站的格子一致 */}
                     {counts[i] > 0 && <span className="vm-more">还有{counts[i]}个任务</span>}
@@ -475,6 +476,7 @@ function TimeGrid({ kind, days, byDay, lunar, today, cfg, nav, scrollRef, onBar,
             onClick={(e) => onCell(d, (e.currentTarget as HTMLElement).getBoundingClientRect())}>
             <span className="vw-wk">{WEEK_LABELS[weekdayMon(d) - 1]}</span>
             <span className="vw-num">{d === today ? "今" : Number(d.slice(8, 10))}</span>
+            {lunar[d]?.mark ? <i className={"v-mark" + (lunar[d].mark === "休" ? " is-off" : " is-work")}>{lunar[d].mark}</i> : null}
             <span className="vw-vice">{lunar[d]?.festival || lunar[d]?.term || lunar[d]?.lunar || ""}</span>
           </button>
         ))}

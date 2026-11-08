@@ -56,8 +56,9 @@ build/ Taskfile.yml          Wails 构建任务，含 ios/android 的 Taskfile�
 docs/                       本目录
 ```
 
-没有 `calendar/` 与 `notify/` 两个包：节假日数据源目前是 `repeat.HolidaySource` 接口（未注入时
-规则退化），提醒计算在 `service/reminders.go` 里，真正的系统通知落地在壳层。
+`internal/core/calendar/` 是节假日与农历数据源（实现 `repeat.HolidaySource`，内置年度表 +
+本机覆盖，见第 11 节第 2 条）。还没有 `notify/` 包：提醒时刻已算出，落地在壳层，
+系统原生通知仍未接。
 
 ## 4. 时间模型（最容易做错的部位）
 
@@ -199,10 +200,14 @@ type ConditionalChannel interface {
 
 1. **飞书多维表格要不要回流**：第一版本地是主库，表格里手改可读列不回收，下一轮被覆盖。
    要支持「在飞书里改」得给标题/日期/打卡状态定字段映射，作为独立里程碑。
-2. **法定节假日与调休数据**（`SkipLegalHolidays`、日期选择器上的「班/休」）现在只有
-   `repeat.HolidaySource` 接口、没有数据源：内置静态年度表（每年更新，离线可用）还是走可更新接口？
-   （农历这一半已经解决：`internal/core/calendar/lunar.go` 自带 1900–2100 表，
-   日期面板的农历位与节日名都来自它，实测与参考站逐格一致。）
+2. ~~**法定节假日与调休数据**~~（已做，2026-11-08）：`internal/core/calendar/data/<year>.json`
+   内置 2025/2026/2027 三年（逐条核对国务院办公厅通知原文，含每天括注的星期），
+   `calendar.Open(dataDir/calendars)` = 内置打底 + 本机同名年份整年覆盖；
+   `SkipLegalHolidays`、`FollowMakeupWorkday`、「法定工作日」预设与日期面板/视图的「班/休」角标都吃这一份数据。
+   表没覆盖的年份（2028 起）仍然退化成普通周一至周五——**程序不替官方猜日历**，
+   设置页「节假日与调休」把覆盖年份、出处、核对日期与导入目录都摊开给用户看。
+   每年 11 月官方公布下一年安排后，加一个 `data/<year>.json` 即可（`calendar_test.go` 的
+   `TestBuiltinTablesAreValid` 会按条数与星期校验，写错星期或漏一天都过不去）。
 3. **系统通知**：提醒时刻已算出，桌面端还没接 Wails 原生通知；iOS 必须在应用激活时把
    `UpcomingReminders` 预排成本地通知（系统 64 条上限）。
 4. **附件同步**：事项图片已经能存能看（`api.AddItemImage` 落 `dataDir/attachments`，

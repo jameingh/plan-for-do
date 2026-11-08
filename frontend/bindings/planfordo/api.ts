@@ -51,6 +51,15 @@ export function AddMemoFile(memoID: string, name: string, dataBase64: string): $
 }
 
 /**
+ * CalendarInfo 返回当前生效的节假日数据：逐年出处、条数、来源（内置 / 本机导入），
+ * 外加内置覆盖的年份与文件落点。设置页显示它，用户才知道「班/休」是谁安排的、
+ * 表覆盖到哪一年，也才知道可以往哪个目录放一份 <year>.json 来顶掉内置。
+ */
+export function CalendarInfo(): $CancellablePromise<calendar$0.Status> {
+    return $Call.ByID(955285854);
+}
+
+/**
  * CalendarView 给视图模块（日/周/月）按区间取数：逐日铺开、不折叠，
  * 这样跨天事项才能在网格里连成一条。
  */
@@ -459,10 +468,11 @@ export function RestoreMemos(memoIDs: string[] | null): $CancellablePromise<numb
 }
 
 /**
- * SaveCalendarYear 写入某一年的法定节假日与调休数据。
+ * SaveCalendarYear 写入某一年的法定节假日与调休数据，覆盖内置的同一年。
  * 
- * 数据本身不内置：每年由国务院办公厅公布，程序不该猜。这里只负责把用户/导入脚本
- * 提供的表落到 dataDir/calendars/<year>.json，重新打开后生效。
+ * 内置表已覆盖官方公布的年份（见 internal/core/calendar/builtin.go），这个入口是给
+ * 「官方补发通知后想马上生效」和「内置年份之外」两种情况用的：把表落到
+ * dataDir/calendars/<year>.json，重新加载后立刻生效，不用等下一版程序。
  */
 export function SaveCalendarYear(t: calendar$0.Table): $CancellablePromise<void> {
     return $Call.ByID(3390319082, t);

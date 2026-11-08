@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { api, bridgeProbe } from "../api/client";
-import type { SyncConfig, SyncResult, SyncState } from "../api/types";
+import type { CalendarStatus, SyncConfig, SyncResult, SyncState } from "../api/types";
 import { saveSettings, toast, toastErr, useApp } from "../store/appStore";
 import { SingleTab, TopBar } from "./chrome";
 import { Empty, FieldError, I, Modal, Segmented } from "./ui";
@@ -24,11 +24,19 @@ export function SettingsPage() {
   const [results, setResults] = useState<SyncResult[] | null>(null);
   const [states, setStates] = useState<Record<string, SyncState>>({});
   const [probeMsg, setProbeMsg] = useState("");
+  // 节假日数据只在设置页要显示，不进 boot 握手：它是「解释界面为什么这样标」的辅助信息，
+  // 读失败不该把整页拖成空白。
+  const [cal, setCal] = useState<CalendarStatus | null>(null);
 
   const reload = useCallback(() => {
     api.SyncChannels().then(setChannels).catch(toastErr);
   }, []);
   useEffect(reload, [reload, revision]);
+
+  useEffect(() => {
+    if (!booted) return;
+    api.CalendarInfo().then(setCal).catch(() => setCal(null));
+  }, [booted]);
 
   useEffect(() => {
     if (!booted) return;
@@ -78,6 +86,29 @@ export function SettingsPage() {
               </div>
             ) : (
               <Empty text={booted ? "握手失败" : "正在与内核握手…"} />
+            )}
+          </section>
+
+          <section className="set-block">
+            <h5 className="section-title">节假日与调休<i>法定工作日、跳过节假日、班/休标记的数据</i></h5>
+            {cal ? (
+              <div className="env-card">
+                <EnvRow lab="生效年份">
+                  <span className="env-chips">{cal.years.map((y) => (
+                    <i key={y.year} title={`${y.source}（核对 ${y.lastVerified}）`}>
+                      {y.year} 休{y.holidayCount}·班{y.makeupCount}{y.origin === "local" ? "·本机" : ""}
+                    </i>
+                  ))}</span>
+                </EnvRow>
+                <EnvRow lab="数据目录" mono copy={cal.dir}
+                  title="放一份 <年份>.json 进来就覆盖内置的同一年，重启后生效">{cal.dir}</EnvRow>
+                <p className="muted small">
+                  内置表来自国务院办公厅公布的节假日安排，覆盖 {cal.years[0]?.year ?? "—"}–{cal.years[cal.years.length - 1]?.year ?? "—"} 年。
+                  表没有的年份不标班/休，「法定工作日」与「跳过节假日」在那几年退化成普通周一至周五——程序不替官方猜日历。
+                </p>
+              </div>
+            ) : (
+              <Empty text={booted ? "读不到节假日数据" : "正在与内核握手…"} />
             )}
           </section>
 

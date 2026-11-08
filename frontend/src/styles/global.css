@@ -518,7 +518,7 @@ svg.icon { flex: none; display: block; }
 .cal-mode.is-sel { background: var(--brand); border-color: transparent; color: var(--on-brand); font-weight: 500; }
 .cal-weeks { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font-size: 11px; color: var(--text-3); margin-bottom: 2px; }
 .cal-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
-.cal-day { width: 32px; height: 32px; border-radius: 50%; background: transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; color: var(--text); }
+.cal-day { position: relative; width: 32px; height: 32px; border-radius: 50%; background: transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; color: var(--text); }
 .cal-day:hover { background: var(--brand-shallow); }
 .cal-day:not(.is-same) { color: var(--text-3); }
 .cal-num { font-size: 12px; line-height: 14px; }
@@ -527,6 +527,16 @@ svg.icon { flex: none; display: block; }
 /* 选中格 = 实心圆 + 白字，农历位一起转白（参考站就是这样） */
 .cal-day.is-click, .cal-day.is-click:hover { background: var(--brand); }
 .cal-day.is-click .cal-num, .cal-day.is-click .cal-lunar { color: var(--on-brand); }
+/* 班/休角标：法定节假日标「休」，调休上班的周末标「班」。
+   放在格子右上角，不参与农历位排版——那行只有一层信息，塞两个词会挤掉数字。 */
+.cal-mark {
+  position: absolute; top: -1px; right: -1px; min-width: 10px; height: 10px; padding: 0 1px;
+  border-radius: 3px; font-size: 8px; line-height: 10px; font-weight: 600; text-align: center;
+}
+.cal-mark.is-off { color: var(--alert); background: var(--alert-deep); }
+.cal-mark.is-work { color: var(--text-2); background: var(--surface-2); }
+.cal-day.is-click .cal-mark { color: var(--on-brand); background: color-mix(in srgb, var(--on-brand) 28%, transparent); }
+.cal-day:not(.is-same) .cal-mark { opacity: .45; }
 
 /* 时间面板：两列滚轮 */
 .time-modes { display: flex; gap: 6px; margin-bottom: 8px; }
@@ -1059,6 +1069,14 @@ svg.icon { flex: none; display: block; }
 .vm-title.is-dim .vm-num, .vm-title.is-dim .vm-vice { color: var(--text-3); }
 .vm-vice { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text-3); }
 .vm-more { margin-left: auto; flex: none; font-size: 10.5px; color: var(--text-3); }
+/* 视图格子的班/休角标（月视图与周视图共用）：跟在日期后面，与 .cal-mark 同一套语义色。
+   月视图抬头只有 24px，绝对定位会被 overflow:hidden 切掉，所以走文档流内联。 */
+.v-mark { flex: none; min-width: 11px; height: 12px; padding: 0 1.5px; border-radius: 3px; font-size: 9px; line-height: 12px; font-weight: 600; font-style: normal; text-align: center; }
+.v-mark.is-off { color: var(--alert); background: var(--alert-deep); }
+.v-mark.is-work { color: var(--text-2); background: var(--surface-2); }
+/* 周视图抬头只有 46px，三行文字已经顶到底了，再塞一行角标会把农历位挤到网格上。
+   所以周视图走绝对定位（贴右上角），月视图保持内联。 */
+.vw-day .v-mark { position: absolute; top: 3px; right: 5px; }
 .vm-lanes { flex: 1; min-height: 0; }
 .vm-lane { display: grid; height: 22px; padding: 0 2px; }
 .vbar { display: flex; align-items: center; gap: 4px; min-width: 0; height: 17px; margin: 0 1px; padding: 0 6px; border: 0; border-radius: 3px; font-size: 11px; color: #333; overflow: hidden; }
@@ -1072,7 +1090,7 @@ svg.icon { flex: none; display: block; }
 .vw { --hour-h: clamp(56px, 8.073vw, 155px); flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .vw-head { flex: none; height: 46px; display: flex; border-bottom: 1px solid var(--line); }
 .vw-corner { flex: none; width: 52px; }
-.vw-day { flex: 1 1 0; min-width: 0; border: 0; border-left: 1px solid var(--line); background: transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; }
+.vw-day { position: relative; flex: 1 1 0; min-width: 0; border: 0; border-left: 1px solid var(--line); background: transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; }
 .vw-day:hover { background: var(--brand-shallow); }
 .vw-wk { font-size: 11px; color: var(--text-3); }
 .vw-num { font-size: 15px; font-weight: 700; color: var(--text); line-height: 16px; }

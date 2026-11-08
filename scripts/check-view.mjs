@@ -3,6 +3,11 @@
 //   先跑 bash scripts/verify-restart.sh 9256 views && bash scripts/seed-view.sh
 //   种子与断言都用「相对今天 / 相对本周一」算（见 scripts/lib/d.mjs），跑在哪一天都一样。
 import { addDays, addMonths, diffDays, mondayOf, monthCN, monthGrid, today, mdCN, dayTitleCN, weekTitleCN, habitDayCN } from "./lib/d.mjs";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const port = process.argv[2] || "9256";
 const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
@@ -90,6 +95,58 @@ check("今天格子写「今」", (await txt(".vm-title.is-today .vm-num")) === 
 // 副标题（节气/节日/农历）的准确性归内核的 calendar 包测（lunar_test.go 的 TestSolarTerm 等），
 // 这里只验「内核的值真的落到了格子里」——写成「立冬」这种文案，隔天就红。
 check("今天格子带农历/节气副标题", /^.+$/.test(String(await evalJs(`document.querySelector(".vm-title.is-today .vm-vice")?.innerText||""`))));
+
+// —— 班/休角标：内核判的班休要真的画到格子上 ——
+// 期望值读的是内核 //go:embed 的那几份 JSON（同一份数据，两处消费），
+// 所以这里只可能失败在「界面没把值显示出来」这一侧。
+const calDataDir = path.join(ROOT, "internal", "core", "calendar", "data");
+const markOf = new Map();
+for (const f of fs.readdirSync(calDataDir).filter((n) => n.endsWith(".json")).sort()) {
+  const t = JSON.parse(fs.readFileSync(path.join(calDataDir, f), "utf8"));
+  for (const d of t.holidays ?? []) markOf.set(d, "休");
+  for (const d of t.makeupWorkdays ?? []) markOf.set(d, "班");
+}
+const gridDays = Array.from({ length: grid.cells }, (_, i) => addDays(grid.start, i));
+const vm = await json(`(()=>{const out=[];for(const e of document.querySelectorAll(".vm-title")){` +
+  `out.push({mark:e.querySelector(".v-mark")?.textContent||"",` +
+  `box:(()=>{const m=e.querySelector(".v-mark");if(!m)return null;const r=m.getBoundingClientRect();` +
+  `return {w:+r.width.toFixed(1),h:+r.height.toFixed(1)}})()});}return JSON.stringify(out)})()`);
+check("月视图格子的班/休与内置表逐格一致",
+  vm.length === grid.cells && vm.every((c, i) => c.mark === (markOf.get(gridDays[i]) || "")),
+  JSON.stringify(vm.map((c, i) => c.mark !== (markOf.get(gridDays[i]) || "") ? `${gridDays[i]}:${c.mark || "空"}` : null).filter(Boolean).slice(0, 5)));
+const monthMarks = gridDays.filter((d) => d.slice(0, 7) === T.slice(0, 7) && markOf.get(d));
+if (monthMarks.length) {
+  check(`本月有 ${monthMarks.length} 天带班/休，格子上都画出来了`,
+    vm.filter((c) => c.mark).length >= monthMarks.length, String(vm.filter((c) => c.mark).length));
+} else {
+  // 本月没有假日不等于「这个功能没被验到」：往后走最多 12 个月找一个有假日的月，
+  // 走不过去才说明内置表过期了（那是该补数据，不是界面的错）。
+  let found = "";
+  for (let i = 1; i <= 12 && !found; i++) {
+    const m = addMonths(T, i).slice(0, 7);
+    if (markOf.has(`${m}-01`) || Array.from({ length: 31 }, (_, k) => `${m}-${String(k + 1).padStart(2, "0")}`).some((d) => markOf.get(d))) found = m;
+  }
+  if (!found) {
+    console.log("  待核对：本月无班休，往后 12 个月也没查到——内置节假日表可能已过期（覆盖到 " +
+      Math.max(...Array.from(markOf.keys()).map((d) => Number(d.slice(0, 4)))) + " 年）");
+  } else {
+    for (let i = 0; i < 12; i++) {
+      if ((await txt(".v-title")) === monthCN(`${found}-01`)) break;
+      await click(".v-arrow", "", 1, 300); // 下个月
+    }
+    const g2 = await json(`(()=>{const out=[];for(const e of document.querySelectorAll(".vm-title")){out.push(e.querySelector(".v-mark")?.textContent||"")}return JSON.stringify(out)})()`);
+    const start2 = mondayOf(`${found}-01`);
+    const days2 = Array.from({ length: g2.length }, (_, i) => addDays(start2, i));
+    check(`翻到 ${found}（有班休的月份）后逐格仍与内置表一致`,
+      g2.every((c, i) => c === (markOf.get(days2[i]) || "")),
+      JSON.stringify(g2.map((c, i) => c !== (markOf.get(days2[i]) || "") ? `${days2[i]}:${c || "空"}` : null).filter(Boolean).slice(0, 5)));
+    check(`${found} 的班/休确实画出来了`, g2.filter(Boolean).length > 0, String(g2.filter(Boolean).length) + " 个角标");
+    await click(".v-today"); // 复位，后面的断言按「今天这一月」算
+    await sleep(350);
+  }
+}
+check("角标尺寸没把抬头挤变形（≤14px 高）",
+  vm.every((c) => !c.box || (c.box.h <= 14 && c.box.w <= 20)), JSON.stringify(vm.find((c) => c.box && c.box.h > 14) || "全合格"));
 const cross = (await gridBars()).find((b) => b.t.includes("跨天出差"));
 check(`跨天条横跨 ${mdCN(addDays(MON, 1))}~${mdCN(addDays(MON, 4))} 四列`, cross && Number(cross.ge) - Number(cross.gs) === 4, JSON.stringify(cross));
 check("溢出折成「还有 N 个任务」", (await num(".vm-more")) > 0 && /还有\d+个任务/.test(await txt(".vm-more")), await txt(".vm-more"));

@@ -71,8 +71,10 @@ func TestNewAPISeedsAndReportsDevice(t *testing.T) {
 	if info.ChannelKinds == nil || info.CalendarYears == nil {
 		t.Errorf("BootInfo 出现 nil 切片，前端会崩：%+v", info)
 	}
-	if len(info.CalendarYears) != 0 {
-		t.Errorf("临时目录不该有节假日数据：%v", info.CalendarYears)
+	// 空数据目录也该有节假日数据：内置表（国务院办公厅已公布的年份）就是打底用的，
+	// 「法定工作日」不该因为用户没导入过东西而静默退化。
+	if len(info.CalendarYears) < 3 {
+		t.Errorf("内置节假日表没生效，只报出 %v", info.CalendarYears)
 	}
 	view, err := api.ListView(service.ListViewRequest{})
 	if err != nil {
