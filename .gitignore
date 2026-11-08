@@ -1,0 +1,45 @@
+.task
+.wails
+bin
+frontend/dist
+frontend/node_modules
+
+# 本地库与同步目录：数据文件绝不进版本库
+*.db
+*.db-wal
+*.db-shm
+/data/
+/planfordo-snapshot.json
+
+# 自检/验证用的临时数据目录与 WebView2 配置
+/tmp/
+
+# —— 隐私 ——
+# 参考站实拍（docs/reference-shots/）与本机应用截图（.shots/）里能看到他真实的任务名、
+# 习惯名和孩子相关的条目；参考站要微信扫码登录，那些图只能借他的会话截，所以不进版本库。
+# 要对外演示前先做打码版，再单独决定要不要提交。
+.shots/
+docs/reference-shots/
+
+# —— 构建产物与本地二进制 ——
+/planfordo.exe
+build/bin/
+*.exe
+*.exe~
+
+# —— 日志、缓存与系统杂项 ——
+*.log
+frontend/.vite/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# —— 陈旧备份稿（.bak 是改造过程中留下的旧副本，不是源码）——
+*.bak
+
+# —— 本地凭据：本项目把同步配置存在内核 meta 里，不该出现任何明文密钥文件，挡一道 ——
+.env
+.env.*
+*.pem
+*.key
+serviceAccount*.json

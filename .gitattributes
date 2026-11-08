@@ -1,0 +1,36 @@
+# 换行策略：这台机器是 Windows，git 的 autocrlf 会把脚本 checkout 成 CRLF，
+# 而 bash 读到 `set -e\r` 这种行尾会直接报错——所以源码与脚本一律按 LF 存、LF 出。
+* text=auto eol=lf
+
+*.sh    text eol=lf
+*.mjs   text eol=lf
+*.js    text eol=lf
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.go    text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.json  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.toml  text eol=lf
+*.md    text eol=lf
+*.mod   text eol=lf
+*.sum   text eol=lf
+*.sql   text eol=lf
+*.manifest text eol=lf
+
+# 二进制素材不要做任何换行/文本猜测
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.icns  binary
+*.car   binary
+*.icon  binary
+*.ttf   binary
+*.woff  binary
+*.woff2 binary
+*.webp  binary
+*.pdf   binary
