@@ -130,6 +130,12 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # verify-restart.sh 内部要 `npm run build`（= tsc && vite build），
+      # 这个 job 里没装依赖就会报「'tsc' is not recognized」（第一次 CI 的八个 job 全挂在这）。
+      - name: 安装前端依赖
+        working-directory: frontend
+        run: npm ci
+
       # verify-restart.sh 会 npm run build + go build 出 bin/planfordo-verify.exe，
       # 再起一个隔离实例（独立数据目录 + 独立 WebView2 profile + CDP 端口）。
       - name: 起自检实例（${{ matrix.tab }}）
