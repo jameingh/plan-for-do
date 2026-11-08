@@ -21,10 +21,20 @@ jobs:
   kernel:
     name: 内核（vet + go test）
     runs-on: ubuntu-24.04
+    needs: web
     env:
       CGO_ENABLED: "0"
     steps:
       - uses: actions/checkout@v4
+
+      # main.go 里是 //go:embed all:frontend/dist —— 没有 dist 时连 `go vet .` 都会报
+      # 「pattern all:frontend/dist: no matching files found」（CI 上第一次就是这么挂的）。
+      # 所以复用 web job 的产物，不在这里重复跑一遍 npm build。
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -53,6 +63,12 @@ jobs:
       - name: 构建产物
         working-directory: frontend
         run: npm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 1
 
   # 八个界面自检各占一个 job：每个脚本都要按自己的 start tab 重启一个隔离实例，
   # 共用实例会被上一个脚本留下的页面状态污染出假失败（本机就发生过）。
