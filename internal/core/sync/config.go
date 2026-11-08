@@ -116,9 +116,10 @@ type Manager struct {
 	engine *Engine
 }
 
-// NewManager 构造通道管理器。
-func NewManager(db *store.DB) *Manager {
-	return &Manager{db: db, engine: NewEngine(db)}
+// NewManager 构造通道管理器。dataDir 可选，透传给同步引擎用于附件字节搬运；
+// 不传的调用方（只管配置/水位的场景）行为与之前一致。
+func NewManager(db *store.DB, dataDir ...string) *Manager {
+	return &Manager{db: db, engine: NewEngine(db, dataDir...)}
 }
 
 // Engine 暴露同步引擎给需要单跑一轮的调用方。

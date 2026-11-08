@@ -16,6 +16,8 @@ import (
 //	fileName            feishuDrive：快照文件名，默认 planfordo-snapshot.json
 //	appToken            feishuBase：多维表格 app_token
 //	tablePrefix         feishuBase：数据表名前缀，默认 pf_
+//
+// 附件字节（BlobChannel）：feishuDrive 支持，feishuBase 明确不支持（表格没有二进制对象语义）。
 var OptionsHelp = []string{"appId", "appSecret", "baseUrl", "folderToken", "fileName", "appToken", "tablePrefix"}
 
 var installOnce stdsync.Once

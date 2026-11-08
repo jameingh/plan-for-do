@@ -4,9 +4,10 @@
 需显式调用 `feishu.Install()` 注册；包不在 `init()` 里注册，重复调用 `Install()` 幂等不 panic。
 
 - **feishuDrive（主通道）**：整份快照作为 `planfordo-snapshot.json` 存在云盘某个文件夹里，
-  语义与 localdir 一致，出问题可直接人工检查文件。
+  语义与 localdir 一致，出问题可直接人工检查文件；附件字节另存一份 `planfordo-blobs.json`（见下）。
 - **feishuBase**：每个实体 kind 一张多维表格数据表（`pf_item`、`pf_habitClock`……），
   `payload` 列存整条记录 JSON，另有 `pf_meta` 表存同步水位（revision / deviceId / syncedAt）。
+  **明确不支持附件字节**（`sync.BlobChannel`），只同步附件元数据。
 
 ## 单向权威（必读）
 
@@ -25,6 +26,23 @@ drive v1 的 `files/upload_all` 只有「新增」语义：同一目录再传一
 
 任意时刻被打断，远端要么「旧快照完好」要么「没有快照」；后者等同首轮起点，引擎下一轮会把
 本地全量重新推上来，不会丢数据，也绝不存在半截快照。任何一步失败都返回错误。
+
+代码里把「一个云盘文件」抽成 `driveObject{fileName, tmpPrefix, label}`，快照与 blob 归档共用
+这套读/覆盖写骨架，但**各有独立的临时名前缀**：快照清理 `.planfordo-tmp-*`，归档清理
+`.planfordo-blob-tmp-*`。共用前缀会让一次快照覆盖把归档刚上传、还没改名的临时文件删掉。
+
+## 附件字节归档（BlobChannel）
+
+`feishuDrive` 实现 `sync.BlobChannel`：同一个文件夹里多一份 `planfordo-blobs.json`，
+内容是把附件字节 base64 后的并集（带 sha256 / size）。引擎在记录合并后用它补本机缺的字节，
+再把本机独有的字节并回归档；两条通路互不依赖，归档失败不影响记录同步。
+
+- `options.fileName` 只改快照文件名，不能与 `planfordo-blobs.json` 撞名（工厂里直接拒绝）。
+- 单份归档上限 14MB **原始附件字节**：归档是 base64 JSON，上传体积约为原始的 4/3，
+  `upload_all` 卡的是 20MB 上传文件，14MB × 4/3 ≈ 18.7MB 才留得下 JSON 结构开销。
+  超限时引擎明确报错，不会静默截断；附件很多或单个很大时请改用「连附件一起导出」的备份文件。
+- **`feishuBase` 明确不支持**：多维表格没有整块二进制对象语义，只有文本/数字列，
+  把 base64 塞进单元格会撞长度上限，拆行存又等于在表格里重造文件系统。这不是待办，是结论。
 
 ## Options 键名（设置页用）
 

@@ -21,18 +21,36 @@ import (
 )
 
 // DefaultSnapshotFileName 与 localdir 通道同名，多通道并行时用户的文件观感一致。
-const DefaultSnapshotFileName = "planfordo-snapshot.json"
+// DefaultBlobFileName 是并列的附件字节归档，命名也跟另外两条通道对齐。
+const (
+	DefaultSnapshotFileName = "planfordo-snapshot.json"
+	DefaultBlobFileName     = sync.BlobArchiveFileName
+)
 
-// tmpFilePrefix 是覆盖写过程中过渡文件的命名前缀，见 Save 的覆盖策略注释。
-const tmpFilePrefix = ".planfordo-tmp-"
+// 覆盖写过程中过渡文件的命名前缀，见 saveObject 的覆盖策略注释。
+// 快照与归档各用一个前缀：Save 会清理「自己前缀」的残留文件，
+// 共用前缀会让一次快照覆盖把归档刚上传还没改名的临时文件删掉。
+const (
+	tmpFilePrefix     = ".planfordo-tmp-"
+	blobTmpFilePrefix = ".planfordo-blob-tmp-"
+)
 
-// Drive 把整份快照作为单个 JSON 文件存在飞书云盘的某个文件夹里。
+// driveObject 是云盘文件夹里的一个「单文件对象」：正式名 + 自己的临时名前缀。
+// 快照与 blob 归档只是两个不同 driveObject，共用同一套读/覆盖写骨架。
+type driveObject struct {
+	fileName  string
+	tmpPrefix string
+	label     string // 错误信息里的对象名，快照沿用「快照」保持原有诊断文案
+}
+
+// Drive 把整份快照（以及可选的附件字节归档）作为 JSON 文件存在飞书云盘的某个文件夹里。
 // 它是主通道：读写各一发，语义与 localdir 最接近，出问题也最容易人工检查。
 type Drive struct {
 	name        string
 	cli         *apiClient
 	folderToken string
-	fileName    string
+	snapshot    driveObject
+	blob        driveObject
 }
 
 func newDrive(name string, opts map[string]string) (sync.Channel, error) {
@@ -48,7 +66,14 @@ func newDrive(name string, opts map[string]string) (sync.Channel, error) {
 	if fileName == "" {
 		fileName = DefaultSnapshotFileName
 	}
-	return &Drive{name: name, cli: cli, folderToken: folder, fileName: fileName}, nil
+	if fileName == DefaultBlobFileName {
+		return nil, errors.New("feishu: options.fileName 不能与附件字节归档同名")
+	}
+	return &Drive{
+		name: name, cli: cli, folderToken: folder,
+		snapshot: driveObject{fileName: fileName, tmpPrefix: tmpFilePrefix, label: "快照"},
+		blob:     driveObject{fileName: DefaultBlobFileName, tmpPrefix: blobTmpFilePrefix, label: "附件字节归档"},
+	}, nil
 }
 
 // Name 返回通道名。
@@ -122,7 +147,7 @@ func (d *Drive) Probe(ctx context.Context) error {
 	if _, err := d.listFiles(ctx); err != nil {
 		return err
 	}
-	token, err := d.uploadAll(ctx, d.tmpName(), []byte("planfordo-probe"))
+	token, err := d.uploadAll(ctx, d.tmpName(d.snapshot.tmpPrefix), []byte("planfordo-probe"))
 	if err != nil {
 		return err
 	}
@@ -133,27 +158,49 @@ func (d *Drive) Probe(ctx context.Context) error {
 	return nil
 }
 
-// Load 读快照。文件还不存在时返回空快照而不是报错，首轮同步就是从这个状态起步。
-func (d *Drive) Load(ctx context.Context) (*sync.Snapshot, error) {
+// loadObject 读一个云盘文件。远端没有这个文件时返回 (nil, nil)，
+// 由调用方决定是「空快照」还是「空归档」——首轮同步都从这里起步。
+// 同名多份按 sortKey 取最新一份，理由见 driveFile.sortKey。
+func (d *Drive) loadObject(ctx context.Context, obj driveObject) ([]byte, error) {
 	files, err := d.listFiles(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var matches []driveFile
 	for _, f := range files {
-		if f.Name == d.fileName && f.Type != "folder" {
+		if f.Name == obj.fileName && f.Type != "folder" {
 			matches = append(matches, f)
 		}
 	}
 	if len(matches) == 0 {
-		return &sync.Snapshot{Schema: sync.SchemaVersion, Records: []store.Entity{}}, nil
+		return nil, nil
 	}
 	sort.Slice(matches, func(i, j int) bool { return matches[i].sortKey() < matches[j].sortKey() })
-	raw, err := d.cli.callRaw(ctx, fmt.Sprintf(pathDriveDownload, matches[len(matches)-1].Token), nil)
+	return d.cli.callRaw(ctx, fmt.Sprintf(pathDriveDownload, matches[len(matches)-1].Token), nil)
+}
+
+// Load 读快照。文件还不存在时返回空快照而不是报错。
+func (d *Drive) Load(ctx context.Context) (*sync.Snapshot, error) {
+	raw, err := d.loadObject(ctx, d.snapshot)
 	if err != nil {
 		return nil, err
 	}
+	if raw == nil {
+		return &sync.Snapshot{Schema: sync.SchemaVersion, Records: []store.Entity{}}, nil
+	}
 	return sync.ParseSnapshot(raw)
+}
+
+// LoadBlob 读附件字节归档；远端没有时返回空归档。
+func (d *Drive) LoadBlob(ctx context.Context) (*sync.BlobArchive, error) {
+	raw, err := d.loadObject(ctx, d.blob)
+	if err != nil {
+		return nil, err
+	}
+	if raw == nil {
+		return sync.NewBlobArchive(), nil
+	}
+	return sync.ParseBlobArchive(raw)
 }
 
 // 覆盖策略（为什么）：drive v1 的 files/upload_all 只有「新增」语义——同名文件再传
@@ -161,19 +208,14 @@ func (d *Drive) Load(ctx context.Context) (*sync.Snapshot, error) {
 // 可用的（medias 更新是给文档内嵌素材的）。所以「删旧建新」是唯一能做出覆盖语义的路，
 // 而且必须显式删，绝不能靠再传一个同名文件。
 //
-// 分三步：先以临时名上传新快照，成功后才删旧文件和上一轮崩溃留下的临时文件，
-// 最后把新文件改名成正式名。任意时刻被打断，远端要么「旧快照完好」要么
-// 「没有快照」：后者与首轮同步的起点相同，引擎下一轮 Load 到空快照、Revision=0，
-// 会把本地全量重新推上来，两端数据本来就都在，所以不会丢。反过来若先删后传，
-// 上传失败就会把远端掏空。任何一步失败都直接报错，不存在半截快照落远端。
-func (d *Drive) Save(ctx context.Context, s *sync.Snapshot) error {
-	if s == nil {
-		return errors.New("feishu: 快照为空")
-	}
-	raw, err := s.Bytes()
-	if err != nil {
-		return err
-	}
+// 分三步：先以临时名上传新文件，成功后才删旧正式文件与上轮崩溃留下的临时文件，
+// 最后把新文件改名成正式名。任意时刻被打断，远端要么「旧文件完好」要么
+// 「没有这个文件」：后者与首轮同步起点相同，引擎下一轮会重新推全量，不会丢。
+// 反过来若先删后传，上传失败就会把远端掏空。任何一步失败都直接报错。
+//
+// 快照与 blob 归档各是一个 driveObject：只清自己名字的旧文件与自己前缀的临时文件，
+// 免得一次快照覆盖把归档刚上传、还没改名的临时文件顺手删掉。
+func (d *Drive) saveObject(ctx context.Context, obj driveObject, raw []byte) error {
 	files, err := d.listFiles(ctx)
 	if err != nil {
 		return err
@@ -183,11 +225,11 @@ func (d *Drive) Save(ctx context.Context, s *sync.Snapshot) error {
 		if f.Type == "folder" {
 			continue
 		}
-		if f.Name == d.fileName || strings.HasPrefix(f.Name, tmpFilePrefix) {
+		if f.Name == obj.fileName || strings.HasPrefix(f.Name, obj.tmpPrefix) {
 			stale = append(stale, f.Token)
 		}
 	}
-	token, err := d.uploadAll(ctx, d.tmpName(), raw)
+	token, err := d.uploadAll(ctx, d.tmpName(obj.tmpPrefix), raw)
 	if err != nil {
 		return err
 	}
@@ -196,13 +238,37 @@ func (d *Drive) Save(ctx context.Context, s *sync.Snapshot) error {
 			continue
 		}
 		if err := d.deleteFile(ctx, t); err != nil {
-			return fmt.Errorf("feishu: 清理旧快照失败（新快照已完整存在，下一轮 Save 会重新覆盖）: %w", err)
+			return fmt.Errorf("feishu: 清理旧%s失败（新%s已完整存在，下一轮会重新覆盖）: %w", obj.label, obj.label, err)
 		}
 	}
-	if err := d.rename(ctx, token, d.fileName); err != nil {
-		return fmt.Errorf("feishu: 发布新快照失败，远端暂时没有正式快照；引擎下一轮会重推全量: %w", err)
+	if err := d.rename(ctx, token, obj.fileName); err != nil {
+		return fmt.Errorf("feishu: 发布新%s失败，远端暂时没有正式%s；引擎下一轮会重推: %w", obj.label, obj.label, err)
 	}
 	return nil
+}
+
+// Save 覆盖写快照。
+func (d *Drive) Save(ctx context.Context, s *sync.Snapshot) error {
+	if s == nil {
+		return errors.New("feishu: 快照为空")
+	}
+	raw, err := s.Bytes()
+	if err != nil {
+		return err
+	}
+	return d.saveObject(ctx, d.snapshot, raw)
+}
+
+// SaveBlob 覆盖写附件字节归档。与快照同文件夹、同骨架，但独立的文件名与临时前缀。
+func (d *Drive) SaveBlob(ctx context.Context, a *sync.BlobArchive) error {
+	if a == nil {
+		return errors.New("feishu: blob 归档为空")
+	}
+	raw, err := a.Bytes()
+	if err != nil {
+		return err
+	}
+	return d.saveObject(ctx, d.blob, raw)
 }
 
 // SaveConditional 拿不到 ETag，只能在写前重读一次远端版本做粗校验。
@@ -263,10 +329,11 @@ func (d *Drive) rename(ctx context.Context, token, newName string) error {
 
 // tmpName 混入纳秒时间与随机后缀：多台设备共用同一个文件夹，只靠时间戳
 // 在时钟回拨时会撞名，撞名的两个过渡文件会互相覆盖删除。
-func (d *Drive) tmpName() string {
+// prefix 区分快照与归档，见 saveObject 的说明。
+func (d *Drive) tmpName(prefix string) string {
 	b := make([]byte, 4)
 	if _, err := rand.Read(b); err != nil {
 		b = []byte(strconv.FormatInt(time.Now().UnixNano()%1e9, 10))
 	}
-	return tmpFilePrefix + strconv.FormatInt(time.Now().UnixNano(), 36) + "-" + hex.EncodeToString(b)
+	return prefix + strconv.FormatInt(time.Now().UnixNano(), 36) + "-" + hex.EncodeToString(b)
 }

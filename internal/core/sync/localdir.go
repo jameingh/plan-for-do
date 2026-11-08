@@ -11,8 +11,11 @@ import (
 )
 
 // snapshotFileName 是通道目录里的快照文件名。用固定名字，让「把一个网盘同步目录指进来」
-// 这种用法在多台设备上自然对齐。
-const snapshotFileName = "planfordo-snapshot.json"
+// 这种用法在多台设备上自然对齐。blobFileName 是与它并列的附件字节归档。
+const (
+	snapshotFileName = "planfordo-snapshot.json"
+	blobFileName     = BlobArchiveFileName
+)
 
 func init() {
 	Register("localdir", newLocalDir)
@@ -59,7 +62,8 @@ func (c *LocalDir) Probe(ctx context.Context) error {
 	return os.Remove(probe)
 }
 
-func (c *LocalDir) path() string { return filepath.Join(c.dir, snapshotFileName) }
+func (c *LocalDir) path() string     { return filepath.Join(c.dir, snapshotFileName) }
+func (c *LocalDir) blobPath() string { return filepath.Join(c.dir, blobFileName) }
 
 // Load 读快照；文件还不存在时返回空快照而不是报错，首轮同步就是从这个状态起步。
 func (c *LocalDir) Load(ctx context.Context) (*Snapshot, error) {
@@ -91,16 +95,45 @@ func (c *LocalDir) SaveConditional(ctx context.Context, s *Snapshot, expectRevis
 	return c.saveAt(ctx, s, c.path())
 }
 
+// LoadBlob 读附件字节归档；文件不存在时返回空归档，首轮同步从这里起步。
+func (c *LocalDir) LoadBlob(ctx context.Context) (*BlobArchive, error) {
+	raw, err := os.ReadFile(c.blobPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return NewBlobArchive(), nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("sync: 读 %s: %w", c.blobPath(), err)
+	}
+	return ParseBlobArchive(raw)
+}
+
+// SaveBlob 与快照同一套原子写：临时文件 + rename，不让另一端读到半截归档。
+func (c *LocalDir) SaveBlob(ctx context.Context, a *BlobArchive) error {
+	if a == nil {
+		return errors.New("sync: blob 归档为空")
+	}
+	raw, err := a.Bytes()
+	if err != nil {
+		return err
+	}
+	return c.writeRaw(c.blobPath(), raw)
+}
+
 func (c *LocalDir) saveAt(ctx context.Context, s *Snapshot, dest string) error {
 	if s == nil {
 		return errors.New("sync: 快照为空")
 	}
-	if err := os.MkdirAll(c.dir, 0o755); err != nil {
-		return fmt.Errorf("sync: 建目录 %s: %w", c.dir, err)
-	}
 	raw, err := s.Bytes()
 	if err != nil {
 		return err
+	}
+	return c.writeRaw(dest, raw)
+}
+
+// writeRaw 是快照与归档共用的原子落盘骨架（结构性抽取，行为不变）。
+func (c *LocalDir) writeRaw(dest string, raw []byte) error {
+	if err := os.MkdirAll(c.dir, 0o755); err != nil {
+		return fmt.Errorf("sync: 建目录 %s: %w", c.dir, err)
 	}
 	tmp, err := os.CreateTemp(c.dir, ".planfordo-snapshot-*")
 	if err != nil {

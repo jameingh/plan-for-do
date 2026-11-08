@@ -255,6 +255,8 @@ export function SettingsPage() {
                   <div key={r.channel} className="muted small" style={{ marginTop: 4 }}>
                     {r.channel}：应用 {r.applied} · 上推 {r.pushed} · 冲突 {r.conflicts} · 版本 {r.revision}
                     {r.skipped ? ` · 跳过原因：${r.skipped}` : ""}
+                    {(r.blobsApplied || r.blobsPushed || r.blobsRejected) ? ` · 附件字节：补 ${r.blobsApplied ?? 0} / 上推 ${r.blobsPushed ?? 0}${r.blobsRejected ? ` / 跳过坏条目 ${r.blobsRejected}` : ""}` : ""}
+                    {r.blobsSkipped ? ` · 附件字节：${r.blobsSkipped}` : ""}
                   </div>
                 ))}
               </div>

@@ -635,6 +635,12 @@ export interface SyncResult {
   revision: number;
   syncedAt: ClockTime;
   skipped?: string;
+  /** 附件字节通路（可选）：从归档补到本地 / 本机并回归档 / 校验不过跳过的条数 */
+  blobsApplied?: number;
+  blobsPushed?: number;
+  blobsRejected?: number;
+  /** 整条字节通路被跳过的原因：通道不支持、未配置附件目录、归档损坏或超限 */
+  blobsSkipped?: string;
 }
 
 /** store.SyncState —— Go 侧带 json tag，字段名小驼峰 */

@@ -63,6 +63,13 @@ var baseColumns = []struct {
 // 用户在飞书表格里手改可读列不会回流到本地——Load 只认 payload 列，
 // 下一次 Save 会把改动的内容重新覆盖成镜像。在改掉这个结论之前，
 // 不要把飞书表格当编辑入口向用户开放。
+//
+// 附件字节：Base **明确不支持** sync.BlobChannel，也不打算在这条通道上补。
+// 多维表格没有「整块二进制对象」语义，只有一行行的文本/数字列：把 base64
+// 塞进文本列会撞单元格长度上限，拆成多行又得自己维护序号与重组，等于在表格里
+// 重造一个文件系统。需要跨设备带图片请改用 feishuDrive / WebDAV / localdir，
+// 或用「连附件一起导出」的备份文件。引擎遇到不实现 BlobChannel 的通道会跳过
+// 字节搬运，只同步附件元数据，并在 Result.BlobsSkipped 里写明原因。
 type Base struct {
 	name     string
 	cli      *apiClient

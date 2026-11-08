@@ -20,7 +20,10 @@ import (
 
 // snapshotFileName 与 localdir 通道保持一致：把一个 DAV 目录指进来时，
 // 多设备（以及从 localdir 迁移过来的用户）天然对齐同一个文件。
-const snapshotFileName = "planfordo-snapshot.json"
+const (
+	snapshotFileName = "planfordo-snapshot.json"
+	blobFileName     = sync.BlobArchiveFileName
+)
 
 var installOnce syncstd.Once
 
@@ -171,6 +174,11 @@ func (c *Channel) dirURL(n int) string {
 
 func (c *Channel) snapshotURL() string {
 	return c.dirURL(len(c.dirSegs)) + "/" + escapeSegment(snapshotFileName)
+}
+
+// blobURL 与快照同目录，路径编码走同一套规则。
+func (c *Channel) blobURL() string {
+	return c.dirURL(len(c.dirSegs)) + "/" + escapeSegment(blobFileName)
 }
 
 // ensureDirs 逐段 MKCOL 确保快照目录存在。已存在时服务器常返回 405/301，
@@ -524,4 +532,57 @@ func putOK(status int) bool {
 		return true
 	}
 	return false
+}
+
+// ---- 附件字节归档（sync.BlobChannel）----
+//
+// 与快照同目录、同样走 GET/PUT，但刻意不碰 setValidator：那些字段是快照
+// SaveConditional 的乐观锁依据，被归档请求改写会让条件写失效。
+
+// LoadBlob 读归档；文件不存在返回空归档，首轮同步从这里起步。
+func (c *Channel) LoadBlob(ctx context.Context) (*sync.BlobArchive, error) {
+	_ = c.ensureDirs(ctx) // 与 Load 同理：只读凭证也该能拉到归档
+	fileURL := c.blobURL()
+	resp, err := c.dl.do(ctx, "GET", fileURL, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case resp.status == http.StatusOK:
+		return sync.ParseBlobArchive(resp.body)
+	case remoteMissing(resp.status):
+		return sync.NewBlobArchive(), nil
+	case isAuthFailure(resp.status):
+		return nil, authError(resp)
+	default:
+		return nil, fmt.Errorf("webdav: GET %s 返回意外状态 %d", redactURL(fileURL), resp.status)
+	}
+}
+
+// SaveBlob 无条件覆盖归档。归档是并集且幂等，不需要 ETag 条件写；
+// 与快照条件写之间的顺序由引擎保证（先归档、后快照），快照写失败时
+// 归档里多出来的字节下一轮会被重新并进来，不会丢。
+func (c *Channel) SaveBlob(ctx context.Context, a *sync.BlobArchive) error {
+	if a == nil {
+		return errors.New("webdav: blob 归档为空")
+	}
+	if err := c.ensureDirs(ctx); err != nil {
+		return err
+	}
+	raw, err := a.Bytes()
+	if err != nil {
+		return err
+	}
+	fileURL := c.blobURL()
+	resp, err := c.putRaw(ctx, fileURL, raw, nil)
+	if err != nil {
+		return err
+	}
+	if !putOK(resp.status) {
+		if isAuthFailure(resp.status) {
+			return authError(resp)
+		}
+		return fmt.Errorf("webdav: PUT %s 返回状态 %d", redactURL(fileURL), resp.status)
+	}
+	return nil
 }

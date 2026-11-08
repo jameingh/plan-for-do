@@ -76,8 +76,8 @@ docs/                       本目录
 
 ## 5. 存储
 
-- 一个 SQLite 文件（`planfordo.db`）+ 一个 `attachments/` 目录（图片走本地文件，不进库、不进同步 payload，
-  附件内容按需经通道单独搬运）。
+- 一个 SQLite 文件（`planfordo.db`）+ 一个 `attachments/` 目录（图片走本地文件，不进库、不进同步快照，
+  附件内容经通道的 blob 归档单独搬运，见 §7）。
 - **所有实体共用一张 `entity` 表**：`(kind, id)` 主键，业务字段进 `data`(JSON)，另有
   `updated_at / deleted_at / day / parent / status / sort` 派生列。选一张表而不是十二张表的原因：
   同步引擎要统一枚举全量记录，UI 演进要频繁加字段——扁平表让加字段不用写迁移，
@@ -130,17 +130,44 @@ type ConditionalChannel interface {
     Channel
     SaveConditional(ctx, *Snapshot, expectRevision int64) error  // 支持 ETag 的通道实现
 }
+// 可选：能存整块二进制对象的通道才实现；feishuBase 明确不实现
+type BlobChannel interface {
+    LoadBlob(ctx) (*BlobArchive, error)   // 远端没有归档时返回空归档
+    SaveBlob(ctx, *BlobArchive) error     // 无条件覆盖，归档恒为并集
+}
 ```
 
 `Snapshot = { schema, deviceId, syncedAt, revision, records[] }`，records 就是 `store.Entity`，
 **含 tombstone**（删除必须能传播）。
 
-一轮同步（`Engine.Run`）：`Load` 远端 → 逐条 LWW 合入本地 → 导出本地全量 → `Save` 并集回去 → 落水位。
+一轮同步（`Engine.Run`）：`Load` 远端 → 逐条 LWW 合入本地 → **合并之后**用 blob 归档补本机缺的
+附件字节（并把本机独有的字节并回归档）→ 导出本地全量 → `Save` 并集回去 → 落水位。
 合入并回推「并集」而不是「只推自己改的」，是因为飞书表格这类通道没有事务与锁，
 两端都推并集才能保证第三方设备下一轮拿到完整状态。
 
 冲突策略：记录级 LWW（比 `updated_at`，同刻比 payload 字典序，规则两端对称才会收敛）。
 不询问用户，只把冲突条数报给 UI。删除靠 tombstone + `CompactTombstones` 的保留期（默认 90 天）控制快照体积。
+
+### 附件字节：可选的 `BlobChannel`
+
+快照里只有附件元数据（`kind=attachment` 的行），文件本体单独装成一份
+`planfordo-blobs.json`：`{ schema, blobs: { "<文件名>": { sha256, size, dataBase64 } } }`。
+用 JSON + base64 而不是 zip，是为了不破坏「通道只需对象存储语义」这个前提，
+飞书云盘 / WebDAV 上还能直接打开人工检查；代价是 4/3 膨胀。
+
+- 键是 `path.Base` 压平后的文件名，写盘只允许落在 `dataDir/attachments/`，
+  与备份导入同一套防穿越规则；`sha256`/`size` 对不上的条目跳过，绝不写坏图。
+- 引擎在**记录合并之后**枚举本地全部存活的附件行：本地缺（或留下半截文件）就从归档补，
+  本地有而归档没有就并回归档。顺序保证界面看到新附件时字节已经落盘。
+- 归档是并集、不做 GC（另一台设备可能还引用）；写回前再 `LoadBlob` 一次只补不删，
+  缩小 read-merge-write 竞态窗口，残留窗口里丢的那份字节仍在它本机磁盘上，下一轮自愈。
+- **可选增强**：通道不实现 `BlobChannel`（feishuBase）、或调用方没注入 `dataDir` 时整条跳过；
+  归档损坏、超限、网络失败只写进 `Result.BlobsSkipped`，记录同步照常完成。
+- `localdir` / `webdav` / `feishuDrive` 各自实现：`localdir` 走原子写，
+  `webdav` 走同目录 GET/PUT（不碰快照的 ETag 校验值），`feishuDrive` 把「单文件对象」
+  抽成 `driveObject`，快照与归档各有独立文件名与临时名前缀，覆盖写互不清理。
+- **feishuBase 明确不支持**：多维表格只有文本/数字列，没有二进制对象语义，把 base64 塞进
+  单元格会撞长度上限；需要跨设备带图片请改用另外三条通道或备份文件。
 
 已知取舍与限制：
 - **全量快照**：个人数据量级（几千条）下最简单可靠；真涨到需要增量时再换协议，通道接口不用动。
@@ -150,6 +177,10 @@ type ConditionalChannel interface {
 - 凭证（`app_id/app_secret`、WebDAV 密码）只从配置读，存在本机 `meta`，绝不进快照；同步内容默认明文
   （多维表格才有可读价值），加密通道待议。
 - 多通道串行同步，不并发写同一个库。
+- **单份 blob 归档 14MB 原始字节上限**：归档是 base64 JSON，上传体积约 4/3；
+  飞书 `upload_all` 卡 20MB 上传文件（14MB → 约 18.7MB，留结构开销），
+  WebDAV 客户端读响应 32MB 反而更宽。读写两侧都校验，超了明确报 `ErrBlobTooLarge`，
+  不让服务端静默截断；单个 50MB 附件或总量更大时走「连附件一起导出」的备份文件。
 
 ## 8. 提醒
 
@@ -222,9 +253,10 @@ type ConditionalChannel interface {
    补这段代码要动用户的开始菜单、而本机又看不到效果，所以先不写；
    等能在真机上验证到横幅再补，或者改走打包安装（MSIX / 安装器会顺带把 AUMID 注册好）。
    iOS 那半边仍是「应用激活时把 `UpcomingReminders` 预排成本地通知」（系统 64 条上限）。
-4. **附件同步**：事项图片已经能存能看（`api.AddItemImage` 落 `dataDir/attachments`，
-   经 `/attachments/<file>` 路由显示，上限 5 张），但**只同元数据、文件留本机**——
-   换设备会看到「图不在这台设备上」。要真把图传到网盘吗？
+4. **附件同步**（2026-11-08 已做）：事项图片落 `dataDir/attachments`、经 `/attachments/<file>`
+   显示（上限 5 张），字节现在随 `localdir` / `webdav` / `feishuDrive` 三条通道同步（§7 的
+   `BlobChannel`），换设备不再图裂。**feishuBase 明确不支持**，且单份归档 14MB 原始字节封顶；
+   归档不做 GC，长期运行后可能留着没人引用的旧字节，需要时再做清理策略。
 5. **加密与导出**（2026-11-08 做了备份这一半）：与通道解耦的「口令加密全量备份」已落地
    （`internal/core/backup`：PBKDF2-SHA256 310k 轮 + AES-256-GCM，头部当 AAD；恢复是 LWW 合并、
    不清库；CLI `plando export/import` + 设置页「备份与恢复」）。

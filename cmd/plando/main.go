@@ -115,7 +115,7 @@ func main() {
 	case "channel":
 		channel(ctx, db, args)
 	case "sync":
-		syncNow(ctx, db, args)
+		syncNow(ctx, db, dir, args)
 	case "export":
 		exportBackup(ctx, db, dir, args)
 	case "import":
@@ -844,8 +844,8 @@ func orderArgs(args []string, boolFlags ...string) []string {
 	return append(flags, rest...)
 }
 
-func syncNow(ctx context.Context, db *store.DB, args []string) {
-	mgr := plansync.NewManager(db)
+func syncNow(ctx context.Context, db *store.DB, dataDir string, args []string) {
+	mgr := plansync.NewManager(db, dataDir)
 	var results []plansync.Result
 	var err error
 	if len(args) == 0 {

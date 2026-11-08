@@ -71,7 +71,7 @@ func NewAPI(dataDir string) (*API, error) {
 		svc:      svc,
 		db:       db,
 		calendar: cal,
-		syncMgr:  plansync.NewManager(db),
+		syncMgr:  plansync.NewManager(db, dataDir),
 		dataDir:  dataDir,
 		fired:    map[string]bool{},
 	}, nil

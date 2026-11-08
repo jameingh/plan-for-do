@@ -83,6 +83,13 @@ type Result struct {
 	Revision  int64           `json:"revision"`
 	SyncedAt  model.ClockTime `json:"syncedAt"`
 	Skipped   string          `json:"skipped,omitempty"`
+
+	// 附件字节是可选通路，单独计数：通道不支持 / 归档损坏时记录同步照常完成，
+	// 原因落在 BlobsSkipped 里，不会伪装成「同步成功但图还是裂的」。
+	BlobsApplied  int    `json:"blobsApplied,omitempty"`  // 从远端归档补到本地的字节数（条）
+	BlobsPushed   int    `json:"blobsPushed,omitempty"`   // 本机并进远端归档的字节数（条）
+	BlobsRejected int    `json:"blobsRejected,omitempty"` // 校验和/长度不对、跳过的归档条目数
+	BlobsSkipped  string `json:"blobsSkipped,omitempty"`  // 整条通路被跳过的原因
 }
 
 // Engine 对一个库执行同步。可并发用于不同通道，但同一库上的写合并靠 SQLite 串行。
@@ -90,11 +97,19 @@ type Engine struct {
 	db *store.DB
 	// TombstoneRetention 是 tombstone 在快照里保留的天数，默认 90。
 	TombstoneRetention int
+	// dataDir 是附件目录的父目录（attachments/ 在它下面）。只有通道实现了
+	// BlobChannel 才用得到；不传时字节搬运整条跳过，保持旧行为。
+	dataDir string
 }
 
-// NewEngine 构造同步引擎。
-func NewEngine(db *store.DB) *Engine {
-	return &Engine{db: db, TombstoneRetention: 90}
+// NewEngine 构造同步引擎。dataDir 可选，桌面壳与 CLI 传真实数据目录，
+// 只跑记录同步的调用方（测试、备份恢复）不传即可。
+func NewEngine(db *store.DB, dataDir ...string) *Engine {
+	e := &Engine{db: db, TombstoneRetention: 90}
+	if len(dataDir) > 0 {
+		e.dataDir = dataDir[0]
+	}
+	return e
 }
 
 // Run 做一轮同步：拉远端 → 合入本地 → 把合并后的全量推回去。
@@ -113,6 +128,12 @@ func (e *Engine) Run(ctx context.Context, ch Channel) (Result, error) {
 		return res, err
 	}
 	res.Applied, res.Conflicts = applied, conflicts
+
+	// 记录合并完再补附件字节：合并进来的 attachment 行也在本轮被覆盖到。
+	// 字节通路是可选的，失败只记录原因，不让一张坏图拖垮整轮记录同步。
+	if err := e.syncBlobs(ctx, ch, &res); err != nil {
+		res.BlobsSkipped = err.Error()
+	}
 
 	local, rev, err := e.localSnapshot(ctx)
 	if err != nil {
