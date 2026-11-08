@@ -43,10 +43,13 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      # Linux 目标在 CGO_ENABLED=0 下必须带 wails 的 purego 标签，否则 root 包一 vet 就报
+      # buildguard 的 undefined（CI 上第二次就挂在这）。本地用 GOOS=linux 复现并验证过：
+      # 不带 purego 报错、带 production purego 时 vet 与测试二进制编译都过。
       - name: go vet
-        run: go vet ./internal/... ./cmd/... .
+        run: go vet -tags "production purego" ./internal/... ./cmd/... .
       - name: go test
-        run: go test ./... -count=1 -timeout=20m
+        run: go test -tags "production purego" ./... -count=1 -timeout=20m
 
   web:
     name: 前端（tsc + 构建）
