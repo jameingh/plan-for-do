@@ -139,6 +139,10 @@ jobs:
       # verify-restart.sh 会 npm run build + go build 出 bin/planfordo-verify.exe，
       # 再起一个隔离实例（独立数据目录 + 独立 WebView2 profile + CDP 端口）。
       - name: 起自检实例（${{ matrix.tab }}）
+        env:
+          # runner 的虚拟显示只有 1024x768，窗口给到 1024x700 才不会露到屏幕外
+          PLANDO_WINDOW_WIDTH: "1024"
+          PLANDO_WINDOW_HEIGHT: "700"
         run: bash scripts/verify-restart.sh 9256 "${{ matrix.tab }}"
 
       - name: 灌种子

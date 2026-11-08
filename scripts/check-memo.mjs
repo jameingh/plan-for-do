@@ -35,6 +35,7 @@ const json = async (e) => JSON.parse(await evalJs(e));
 async function point(sel, text, nth = 0) {
   const pt = await json(`(()=>{const L=[...document.querySelectorAll(${JSON.stringify(sel)})];` +
     `const e=${text ? `L.filter(x=>(x.innerText||"").includes(${JSON.stringify(text)}))` : "L"}[${nth}];if(!e)return JSON.stringify(null);` +
+    `e.scrollIntoView({block:"center",inline:"center"});` +          // CI 的显示比本机小，先滚进视口再量
     `const r=e.getBoundingClientRect();return JSON.stringify({x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)})})()`);
   if (!pt) throw new Error("找不到 " + sel + (text ? ` （含「${text}」）` : ""));
   return pt;
@@ -373,6 +374,7 @@ check("memo 与 memoFolder 两类记录都在库里", snap.memos >= 3 && snap.fo
 check("正文里保留了富文本标签", snap.rows.some((r) => /<(p|b|ul|font|input)/.test(r.html || "")), JSON.stringify(snap.rows.map((r) => (r.html || "").slice(0, 40))));
 
 console.log("\n结果：通过 " + pass + "，失败 " + fail);
+fs.mkdirSync("tmp/memo", { recursive: true });   // tmp/ 不在版本库里，干净 runner 上目录不存在
 fs.writeFileSync("tmp/memo/last-run.json", JSON.stringify({ at: new Date().toISOString(), pass, fail }, null, 1));
 ws.close();
 process.exit(fail ? 1 : 0);

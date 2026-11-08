@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -93,10 +94,14 @@ func main() {
 		startURL = "/?tab=" + os.Getenv("PLANDO_START_TAB")
 	}
 
+	// 窗口尺寸默认 1180x780（按参考站在 1920 屏上的比例定的）。
+	// 留环境变量覆盖口是给 CI 用的：GitHub 的 windows runner 虚拟显示只有 1024x768，
+	// 1180x780 的窗口会被裁掉一截，界面自检点到的坐标落在屏幕外（check-memo 的背景格子就是这么挂的）。
+	winW, winH := windowSize()
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:            "功到",
-		Width:            1180,
-		Height:           780,
+		Width:            winW,
+		Height:           winH,
 		BackgroundColour: application.NewRGB(246, 246, 244),
 		URL:              startURL,
 	})
@@ -166,4 +171,17 @@ func resolveDataDir() (string, error) {
 		return "", fmt.Errorf("建数据目录 %s: %w", dir, err)
 	}
 	return dir, nil
+}
+
+// windowSize 读 PLANDO_WINDOW_WIDTH / PLANDO_WINDOW_HEIGHT，非法或缺省用 1180x780，
+// 并夹在 640..2560 之间，避免一个笔误把窗口开成 0 宽（那样界面自检会点到空气，还看不出原因）。
+func windowSize() (int, int) {
+	pick := func(key string, def int) int {
+		v, err := strconv.Atoi(os.Getenv(key))
+		if err != nil || v < 640 || v > 2560 {
+			return def
+		}
+		return v
+	}
+	return pick("PLANDO_WINDOW_WIDTH", 1180), pick("PLANDO_WINDOW_HEIGHT", 780)
 }
