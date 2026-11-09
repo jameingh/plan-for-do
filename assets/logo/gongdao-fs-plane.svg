@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2F7CF6"/>
+      <stop offset="0.55" stop-color="#23A6EC"/>
+      <stop offset="1" stop-color="#15C7C0"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="1024" height="1024" rx="224" ry="224" fill="url(#g)"/>
+  <!-- paper plane: two wings + center fold (negative space) -->
+  <path d="M512 224 L246 648 L512 548 Z" fill="#ffffff"/>
+  <path d="M512 224 L778 648 L512 548 Z" fill="#ffffff"/>
+  <line x1="512" y1="232" x2="512" y2="548" stroke="url(#g)" stroke-width="16" stroke-linecap="round"/>
+</svg>
