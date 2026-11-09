@@ -255,8 +255,17 @@ export function wireEvents(): () => void {
     if (arr.length) pushReminders(arr);
   });
   const off3 = api.On("sync:done", (data) => {
-    const arr = Array.isArray(data) ? (data as { channel: string; applied: number; pushed: number; conflicts: number }[]) : [];
-    if (arr.length) toast(`同步完成：${arr.map((r) => `${r.channel}(应用${r.applied}/上推${r.pushed}/冲突${r.conflicts})`).join("，")}`);
+    type SyncDone = { channel: string; applied: number; pushed: number; conflicts: number; skipped?: string };
+    const arr = Array.isArray(data) ? (data as SyncDone[]) : [];
+    if (!arr.length) return;
+    // 内核把单条通道的失败塞进 Result.skipped（SyncAll 不能让一条失败拖垮其它通道）。
+    // 「本地无待推送内容」是唯一正常的跳过，其余一律按失败报出来：否则用户会
+    // 同时看到红色错误和绿色「同步完成」（2026-11-09 真实反馈）。
+    const isSkip = (s?: string) => !s || s === "本地无待推送内容";
+    const ok = arr.filter((r) => isSkip(r.skipped));
+    const failed = arr.filter((r) => !isSkip(r.skipped));
+    if (ok.length) toast(`同步完成：${ok.map((r) => `${r.channel}(应用${r.applied}/上推${r.pushed}/冲突${r.conflicts})`).join("，")}`);
+    for (const r of failed) toastErr(new Error(`通道「${r.channel}」同步失败：${r.skipped}`));
   });
 
   // 参考站也做这件事：切回窗口就重新拉一遍数据（它挂 visibilitychange）。

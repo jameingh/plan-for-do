@@ -38,8 +38,10 @@ var (
 )
 
 // 飞书各 endpoint 的路径集中成变量：鉴权、drive 列目录、bitable records 增删改查
-// 的形状文档里写得很确定；drive 的 delete / rename 与建表响应的字段形状存疑，
+// 的形状文档里写得很确定；drive 的 delete 与建表响应的字段形状存疑，
 // 真实环境对不上时只改这里，不必动调用点。存疑项在 README 里也逐条列出。
+// 注意：drive v1 **没有** rename 接口（PATCH /files/{token}/rename 实测 404），
+// 别再照着旧笔记加回来；覆盖写靠「正式名直传 + 精确删旧」实现。
 var (
 	pathTenantToken = "/open-apis/auth/v3/tenant_access_token/internal"
 
@@ -47,7 +49,6 @@ var (
 	pathDriveUpload   = "/open-apis/drive/v1/files/upload_all"
 	pathDriveDownload = "/open-apis/drive/v1/files/%s/download"
 	pathDriveDelete   = "/open-apis/drive/v1/files/%s"
-	pathDriveRename   = "/open-apis/drive/v1/files/%s/rename"
 	// drive 删除文件的 type 查询参数是否必填存疑，做成变量便于线上纠正。
 	driveDeleteQueryType = "file"
 	// drive 列目录的分页游标键名在文档里叫 page_token，部分响应实测给 next_page_token，两种都认。
@@ -247,6 +248,17 @@ func (c *apiClient) callJSON(ctx context.Context, method, path string, query url
 			}
 			continue
 		}
+		// 非 2xx 不能盲当 envelope 解析：飞书的 404 是纯文本 "404 page not found"，
+		// json.Unmarshal 会把开头的 404 当成一个数字顶层值，再对后面的文本报
+		// `invalid character 'p' after top-level value`，把「接口不存在」这个真因
+		// 彻底掩盖（2026-11-09 真实踩过）。这里先分情况给出明确诊断。
+		if status < 200 || status >= 300 {
+			var bad envelope
+			if err := json.Unmarshal(raw, &bad); err == nil && bad.Code != 0 {
+				return nil, fmt.Errorf("feishu: %s 返回 HTTP %d (code=%d): %s", path, status, bad.Code, bad.Msg)
+			}
+			return nil, fmt.Errorf("feishu: %s 返回 HTTP %d（响应不是飞书错误体）: %s", path, status, responseSnippet(raw))
+		}
 		var env envelope
 		if err := json.Unmarshal(raw, &env); err != nil {
 			return nil, fmt.Errorf("feishu: 解析 %s 响应: %w", path, err)
@@ -339,10 +351,22 @@ func (c *apiClient) callRaw(ctx context.Context, path string, query url.Values) 
 			return raw, nil
 		}
 		var env envelope
-		_ = json.Unmarshal(raw, &env)
-		return nil, fmt.Errorf("feishu: %s 返回 HTTP %d (code=%d): %s", path, status, env.Code, env.Msg)
+		if err := json.Unmarshal(raw, &env); err == nil && env.Code != 0 {
+			return nil, fmt.Errorf("feishu: %s 返回 HTTP %d (code=%d): %s", path, status, env.Code, env.Msg)
+		}
+		return nil, fmt.Errorf("feishu: %s 返回 HTTP %d（响应不是飞书错误体）: %s", path, status, responseSnippet(raw))
 	}
 	return nil, fmt.Errorf("feishu: %s 重试 %d 次仍失败（限流或服务不可用）", path, maxAttempts)
+}
+
+// responseSnippet 只把一小段可读文本放进错误信息，便于一眼看出「404 明文 /
+// 代理 HTML」这类非 JSON 响应，又不把整份响应体（可能很大）塞进 UI 和日志。
+func responseSnippet(raw []byte) string {
+	s := strings.TrimSpace(string(raw))
+	if len(s) > 200 {
+		s = s[:200] + "…"
+	}
+	return strconv.Quote(strings.Join(strings.Fields(s), " "))
 }
 
 func asEnvelope(raw []byte) (envelope, bool) {

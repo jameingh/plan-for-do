@@ -244,9 +244,20 @@ type fakeDrive struct {
 	files      map[string]*driveNode
 	seq        int
 	tokenCalls int
-	faults     map[string]int // "upload"|"delete"|"rename" → 剩余注入次数
-	// lastUploadSize 记下 upload_all 收到的 size 字段，给「必填 size」做回归护栏。
+	faults     map[string]int // "upload"|"delete" → 剩余注入次数
+	// lastUploadSize / lastUploadName 记录 upload_all 收到的关键字段，
+	// 给「必填 size」「必须以正式名直传」两条回归护栏用。
 	lastUploadSize string
+	lastUploadName string
+	// renameCalls 是护栏：飞书 v1 根本没有改名接口，代码不该再发这种请求。
+	renameCalls int
+	// deleteFault* 模拟「删除返回业务错误」的两种真实情形：另一轮已经删掉
+	// （文件不在，1061001/1061007）与文件仍在不让删。
+	deleteFaultName    string
+	deleteFaultCode    int
+	deleteFaultRemoves bool
+	// duplicateOnUpload 模拟另一轮并发在上传完成后也写了一份同名文件。
+	duplicateOnUpload bool
 }
 
 func newFakeDrive() *fakeDrive {
@@ -308,6 +319,7 @@ func (f *fakeDrive) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		f.lastUploadSize = r.FormValue("size")
 		name := r.FormValue("file_name")
+		f.lastUploadName = name
 		fh, _, err := r.FormFile("file")
 		if err != nil {
 			fmt.Fprintf(w, `{"code":2,"msg":"缺文件段: %s"}`, err)
@@ -322,6 +334,10 @@ func (f *fakeDrive) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.seq++
 		tok := fmt.Sprintf("f%d", f.seq)
 		f.files[tok] = &driveNode{name: name, content: string(buf), created: f.seq}
+		if f.duplicateOnUpload {
+			f.seq++
+			f.files[fmt.Sprintf("f%d", f.seq)] = &driveNode{name: name, content: "concurrent-copy", created: f.seq}
+		}
 		fmt.Fprintf(w, `{"code":0,"msg":"ok","data":{"file_token":%q}}`, tok)
 	case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/download"):
 		node, ok := f.files[dl]
@@ -331,25 +347,23 @@ func (f *fakeDrive) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Write([]byte(node.content))
 	case r.Method == http.MethodPatch && strings.HasSuffix(r.URL.Path, "/rename"):
-		if f.hitLocked("rename") {
-			rateLimitReply(w)
-			return
-		}
-		var body struct {
-			NewName string `json:"new_name"`
-		}
-		json.NewDecoder(r.Body).Decode(&body)
-		tok := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, pathDriveList+"/"), "/rename")
-		node, ok := f.files[tok]
-		if !ok {
-			fmt.Fprint(w, `{"code":1,"msg":"文件不存在"}`)
-			return
-		}
-		node.name = body.NewName
-		fmt.Fprint(w, `{"code":0,"msg":"ok","data":{}}`)
+		// 护栏：真实飞书对这个名字返回 HTTP 404 + 纯文本 "404 page not found"。
+		// 一旦代码又去调改名接口，这里计数并把错误暴露出来。
+		f.renameCalls++
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprint(w, "404 page not found")
 	case r.Method == http.MethodDelete:
 		if f.hitLocked("delete") {
 			rateLimitReply(w)
+			return
+		}
+		if n, ok := f.files[dl]; ok && f.deleteFaultCode != 0 && n.name == f.deleteFaultName {
+			if f.deleteFaultRemoves {
+				delete(f.files, dl)
+			}
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, `{"code":%d,"msg":"injected delete failure","data":{}}`, f.deleteFaultCode)
 			return
 		}
 		if _, ok := f.files[dl]; !ok {
@@ -396,6 +410,37 @@ func (f *fakeDrive) setFault(op string, times int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.faults[op] = times
+}
+
+func (f *fakeDrive) lastUploadedName() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.lastUploadName
+}
+
+func (f *fakeDrive) renameAttempts() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.renameCalls
+}
+
+// seedStale 塞一个旧版本失败轮遗留的过渡文件，用来验证新代码会顺手回收它。
+func (f *fakeDrive) seedStale(name string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.files["stale"] = &driveNode{name: name, content: "stale", created: 0}
+}
+
+func (f *fakeDrive) setDeleteFault(name string, code int, removes bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deleteFaultName, f.deleteFaultCode, f.deleteFaultRemoves = name, code, removes
+}
+
+func (f *fakeDrive) seedNamed(token, name, content string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.files[token] = &driveNode{name: name, content: content, created: 0}
 }
 
 func TestDriveProbeSaveLoadRoundTrip(t *testing.T) {
@@ -469,7 +514,9 @@ func TestDriveProbeSaveLoadRoundTrip(t *testing.T) {
 	}
 }
 
-func TestDriveOverwriteFaultLeavesNoPartialSnapshot(t *testing.T) {
+// 上传失败时远端必须完好保留旧快照：新流程先以正式名上传，失败就没产生新文件，
+// 不存在「旧文件已删、新文件还没发布」的空窗——旧 rename 方案正是死在这里。
+func TestDriveUploadFaultKeepsOldSnapshot(t *testing.T) {
 	useFastBackoff(t)
 	maxAttempts = 2
 	fake := newFakeDrive()
@@ -482,40 +529,186 @@ func TestDriveOverwriteFaultLeavesNoPartialSnapshot(t *testing.T) {
 	if err := ch.Save(ctx, snapA); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	fake.setFault("rename", 50)
+	fake.setFault("upload", 50)
 	snapB := newSnapshot(2, testEntity(store.KindItem, "i1", "新内容", 1))
 	err := ch.Save(ctx, snapB)
-	if err == nil || !strings.Contains(err.Error(), "发布新快照失败") {
-		t.Fatalf("rename 持续限流时 Save 应报错: %v", err)
+	if err == nil {
+		t.Fatal("upload_all 持续限流时 Save 应报错")
 	}
 	assertNoSecret(t, err)
-	if n := len(fake.contentsNamed(DefaultSnapshotFileName)); n != 0 {
-		t.Errorf("发布失败后不该有正式快照，实际 %d 份", n)
+	wantRaw, _ := snapA.Bytes()
+	named := fake.contentsNamed(DefaultSnapshotFileName)
+	if len(named) != 1 {
+		t.Fatalf("上传失败后应恰好保留 1 份旧快照，实际 %d 份", len(named))
 	}
-	for _, c := range fake.allContents() {
-		if _, perr := coresync.ParseSnapshot([]byte(c)); perr != nil {
-			t.Errorf("远端残留半截快照: %v", perr)
+	for _, c := range named {
+		if c != string(wantRaw) {
+			t.Error("上传失败后远端内容必须仍是旧快照")
 		}
 	}
 	got, err := ch.Load(ctx)
 	if err != nil {
-		t.Fatalf("没有正式快照时 Load 应视作首轮起步: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
-	if got.Revision != 0 || len(got.Records) != 0 {
-		t.Errorf("空远端应返回空快照，得到 rev=%d records=%d", got.Revision, len(got.Records))
+	diffRecords(t, snapA.Records, got.Records)
+	if n := fake.renameAttempts(); n != 0 {
+		t.Errorf("不该调用不存在的 rename 接口，实际 %d 次", n)
 	}
-	fake.setFault("rename", 0)
+
+	fake.setFault("upload", 0)
 	if err := ch.Save(ctx, snapB); err != nil {
 		t.Fatalf("限流解除后应重新覆盖成功: %v", err)
 	}
 	got, _ = ch.Load(ctx)
 	diffRecords(t, snapB.Records, got.Records)
 	if n := fake.fileCount(); n != 1 {
-		t.Errorf("上一轮失败留下的临时文件应被回收，剩 %d 个文件", n)
+		t.Errorf("覆盖后应只剩 1 份快照，实际 %d 个文件", n)
 	}
 }
 
-func TestDriveDeleteFaultKeepsOldSnapshot(t *testing.T) {
+// 真实环境结论（2026-11-09）：飞书云盘 v1 没有 rename 接口，同名文件可以重复上传并存。
+// 覆盖写因此改成「正式名直传 + 按 token 精确删旧」，并顺手回收旧版本遗留的临时文件。
+func TestDriveSaveUsesOfficialNameWithoutRename(t *testing.T) {
+	useFastBackoff(t)
+	fake := newFakeDrive()
+	srv := httptest.NewServer(fake)
+	defer srv.Close()
+	ch := buildChannel(t, "feishuDrive", driveOpts(srv.URL))
+	ctx := context.Background()
+
+	fake.seedStale(tmpFilePrefix + "old-crash")
+	if err := ch.Save(ctx, newSnapshot(1, testEntity(store.KindItem, "i1", "第一版", 0))); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if got := fake.lastUploadedName(); got != DefaultSnapshotFileName {
+		t.Fatalf("必须直接以正式名 %q 上传，实际 %q", DefaultSnapshotFileName, got)
+	}
+	if n := fake.renameAttempts(); n != 0 {
+		t.Fatalf("不应再调用不存在的 rename 接口，实际 %d 次", n)
+	}
+	if n := fake.fileCount(); n != 1 {
+		t.Errorf("旧版本遗留的临时文件应被回收，剩 %d 个文件", n)
+	}
+
+	if err := ch.Save(ctx, newSnapshot(2, testEntity(store.KindItem, "i1", "第二版", 1))); err != nil {
+		t.Fatalf("覆盖写 Save: %v", err)
+	}
+	if n := len(fake.contentsNamed(DefaultSnapshotFileName)); n != 1 {
+		t.Fatalf("覆盖后同名快照应恰好一份，实际 %d 份", n)
+	}
+	if n := fake.fileCount(); n != 1 {
+		t.Errorf("覆盖后不应有残留文件，实际 %d 个", n)
+	}
+}
+
+// 一次成功的 Save 必须让远端收敛到一份同名文件：既要清掉上传前就存在的旧副本，
+// 也要清掉「列目录 → 上传」之间由另一轮并发写入的同名副本。否则引擎在
+// pushed=0 / revision≠0 时整轮跳过 Save，重复文件会永远留在云盘里。
+func TestDriveSaveConvergesConcurrentDuplicates(t *testing.T) {
+	useFastBackoff(t)
+	fake := newFakeDrive()
+	fake.seedNamed("preset-a", DefaultSnapshotFileName, "old-a")
+	fake.seedNamed("preset-b", DefaultSnapshotFileName, "old-b")
+	fake.duplicateOnUpload = true
+	srv := httptest.NewServer(fake)
+	defer srv.Close()
+	ch := buildChannel(t, "feishuDrive", driveOpts(srv.URL))
+	ctx := context.Background()
+
+	snap := newSnapshot(1, testEntity(store.KindItem, "i1", "最新内容", 0))
+	if err := ch.Save(ctx, snap); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	want, _ := snap.Bytes()
+	named := fake.contentsNamed(DefaultSnapshotFileName)
+	if len(named) != 1 {
+		t.Fatalf("覆盖写后同名快照应恰好一份，实际 %d 份", len(named))
+	}
+	for _, c := range named {
+		if c != string(want) {
+			t.Error("留下的不是本轮最新快照")
+		}
+	}
+	if n := fake.renameAttempts(); n != 0 {
+		t.Errorf("不该调用不存在的 rename 接口，实际 %d 次", n)
+	}
+}
+
+// 删除旧文件的两种「假失败」都不能阻断同步：新文件已经以正式名完整存在，
+// 删不掉的那份要么已被另一轮删了，要么只是历史垃圾。
+func TestDriveSaveToleratesConcurrentAndLeftoverDeleteFailures(t *testing.T) {
+	useFastBackoff(t)
+	t.Run("并发重复删除旧正式文件", func(t *testing.T) {
+		fake := newFakeDrive()
+		srv := httptest.NewServer(fake)
+		defer srv.Close()
+		ch := buildChannel(t, "feishuDrive", driveOpts(srv.URL))
+		ctx := context.Background()
+		if err := ch.Save(ctx, newSnapshot(1, testEntity(store.KindItem, "i1", "第一版", 0))); err != nil {
+			t.Fatalf("首次 Save: %v", err)
+		}
+		// 另一轮覆盖写已经把旧文件删了，本轮删除收到 1061001。
+		fake.setDeleteFault(DefaultSnapshotFileName, 1061001, true)
+		if err := ch.Save(ctx, newSnapshot(2, testEntity(store.KindItem, "i1", "第二版", 1))); err != nil {
+			t.Fatalf("重复删除不该阻断同步: %v", err)
+		}
+		if n := fake.fileCount(); n != 1 {
+			t.Errorf("幂等删除后应只剩一份快照，实际 %d 个文件", n)
+		}
+	})
+
+	t.Run("历史临时残留删不掉", func(t *testing.T) {
+		fake := newFakeDrive()
+		srv := httptest.NewServer(fake)
+		defer srv.Close()
+		ch := buildChannel(t, "feishuDrive", driveOpts(srv.URL))
+		ctx := context.Background()
+		fake.seedStale(tmpFilePrefix + "stuck")
+		fake.setDeleteFault(tmpFilePrefix+"stuck", 1061001, false)
+		if err := ch.Save(ctx, newSnapshot(1, testEntity(store.KindItem, "i1", "第一版", 0))); err != nil {
+			t.Fatalf("残留删不掉不该阻断同步: %v", err)
+		}
+		if n := len(fake.contentsNamed(DefaultSnapshotFileName)); n != 1 {
+			t.Fatalf("正式快照应恰好一份，实际 %d 份", n)
+		}
+	})
+}
+
+// 404 之类非 JSON 响应必须给出「HTTP 状态 + 响应内容」，而不是被 json.Unmarshal
+// 误报成 `invalid character 'p' after top-level value` 掩盖真实原因。
+func TestCallJSONReportsPlainText404(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == pathTenantToken {
+			fmt.Fprint(w, `{"code":0,"msg":"ok","tenant_access_token":"t","expire":7200}`)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprint(w, "404 page not found")
+	}))
+	defer srv.Close()
+	cli, err := newClient(map[string]string{"appId": "cli_test", "appSecret": "secret_test", "baseUrl": srv.URL})
+	if err != nil {
+		t.Fatalf("newClient: %v", err)
+	}
+	_, err = cli.callJSON(context.Background(), http.MethodPatch,
+		"/open-apis/drive/v1/files/tok/rename", nil, []byte(`{"new_name":"n"}`), "")
+	if err == nil {
+		t.Fatal("HTTP 404 应报错")
+	}
+	if strings.Contains(err.Error(), "invalid character 'p'") {
+		t.Fatalf("不该再出现误导性的 JSON 解析错: %v", err)
+	}
+	if !strings.Contains(err.Error(), "HTTP 404") || !strings.Contains(err.Error(), "404 page not found") {
+		t.Fatalf("诊断信息不明确: %v", err)
+	}
+	assertNoSecret(t, err)
+}
+
+// 删旧失败时，新快照已经以正式名完整上传（同名会有两份），Load 按创建时间
+// 取最新的一份；下一轮 Save 会把残留的旧文件一并清掉。宁可多留一份，
+// 也不能让远端落到「没有完整快照」的状态。
+func TestDriveDeleteFaultKeepsNewSnapshotAndRecovers(t *testing.T) {
 	useFastBackoff(t)
 	maxAttempts = 2
 	fake := newFakeDrive()
@@ -534,17 +727,25 @@ func TestDriveDeleteFaultKeepsOldSnapshot(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "清理旧快照失败") {
 		t.Fatalf("删除旧文件失败应报错: %v", err)
 	}
-	wantRaw, _ := snapA.Bytes()
-	for _, c := range fake.contentsNamed(DefaultSnapshotFileName) {
-		if c != string(wantRaw) {
-			t.Errorf("删除失败这一步远端必须还是旧快照（宁可多留不可少留）")
+	wantRaw, _ := snapB.Bytes()
+	named := fake.contentsNamed(DefaultSnapshotFileName)
+	if len(named) != 2 {
+		t.Fatalf("删旧失败时应有新旧两份同名快照，实际 %d 份", len(named))
+	}
+	foundNew := false
+	for _, c := range named {
+		if c == string(wantRaw) {
+			foundNew = true
 		}
+	}
+	if !foundNew {
+		t.Error("删旧失败时新快照必须已完整存在")
 	}
 	got, err := ch.Load(ctx)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	diffRecords(t, snapA.Records, got.Records)
+	diffRecords(t, snapB.Records, got.Records)
 
 	fake.setFault("delete", 0)
 	if err := ch.Save(ctx, snapB); err != nil {
@@ -553,7 +754,7 @@ func TestDriveDeleteFaultKeepsOldSnapshot(t *testing.T) {
 	got, _ = ch.Load(ctx)
 	diffRecords(t, snapB.Records, got.Records)
 	if n := fake.fileCount(); n != 1 {
-		t.Errorf("失败轮留下的临时文件应被回收，剩 %d 个文件", n)
+		t.Errorf("失败轮留下的旧文件应被回收，剩 %d 个文件", n)
 	}
 }
 

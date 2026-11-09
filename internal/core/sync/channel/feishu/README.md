@@ -18,18 +18,33 @@
 ## feishuDrive 的覆盖写策略
 
 drive v1 的 `files/upload_all` 只有「新增」语义：同一目录再传一个同名文件不会替换旧的，
-带 `file_token` 的内容更新接口 v1 也没有可用的。因此覆盖必须**显式删旧建新**：
+而是**并存第二份**（2026-11-09 实测：两次上传拿到两个不同 `file_token`，列目录两份都在）。
+飞书云盘 v1 也**没有可用的改名接口**——`PATCH /files/{file_token}/rename` 实测返回
+`HTTP 404` + 纯文本 `404 page not found`，官方文档同样查无此 endpoint。带 `file_token`
+的内容更新接口 v1 也没有可用的。因此覆盖必须**正式名直传 + 按 token 精确删旧**：
 
-1. 以临时名（`.planfordo-tmp-*`）上传新快照；
-2. 上传成功后才删除旧正式文件与上轮崩溃遗留的临时文件；
-3. 把新文件改名成正式名。
+1. 先列目录，收集所有同名正式文件与历史临时残留的 `file_token`；
+2. 直接以正式名上传新内容（`upload_all` 返回本轮 `file_token`）；
+3. **再列一次目录**，把上传期间由另一轮并发写入的同名文件也并进清理列表，
+   除本轮 token 外全部删掉。少了这一步，引擎在 `pushed=0 / revision≠0` 时
+   整轮跳过 `Save`，重复文件就永远没人清了。
 
-任意时刻被打断，远端要么「旧快照完好」要么「没有快照」；后者等同首轮起点，引擎下一轮会把
-本地全量重新推上来，不会丢数据，也绝不存在半截快照。任何一步失败都返回错误。
+任意时刻被打断：上传失败则远端仍是旧文件（完好）；上传成功、删旧失败则远端同时有
+新旧两份同名，`loadObject` 按创建时间取最新一份，下一轮 `Save` 会把残留一并清掉。
+**不存在「旧文件已删、新文件还没发布」的空窗**——早期「临时名 + 改名」方案正是
+卡在改名这一步，把正式快照丢在远端之外（真实用户报错，2026-11-09 修复）。
+极端并发下两端可能把对方的同名文件都删掉，那等价于首轮空远端：引擎下一轮
+`Load` 空快照、`Revision=0`，会重推全量自愈，不会丢记录。
+
+删旧是**幂等**的：并发覆盖写时另一轮可能已经删掉了同一个 token，飞书会回
+`1061001` / `1061007` 而不是成功；复查一次列目录确认文件已不在就当成功。
+只有「旧正式文件确实还在、删不掉」才报错（它可能让 `loadObject` 挑回旧内容）。
+旧版本遗留的临时残留删不掉只影响云盘卫生，下一轮再试，不阻断本轮同步。
 
 代码里把「一个云盘文件」抽成 `driveObject{fileName, tmpPrefix, label}`，快照与 blob 归档共用
-这套读/覆盖写骨架，但**各有独立的临时名前缀**：快照清理 `.planfordo-tmp-*`，归档清理
-`.planfordo-blob-tmp-*`。共用前缀会让一次快照覆盖把归档刚上传、还没改名的临时文件删掉。
+这套读/覆盖写骨架，但**各有独立的临时名前缀**：快照清理 `.planfordo-tmp-*`、归档清理
+`.planfordo-blob-tmp-*`，互不误删。新版本不再生成过渡文件，但保留这两个前缀的清理，
+用于回收旧版本失败轮留在云盘里的残留（含 `Probe` 的写探针）。
 
 ## 附件字节归档（BlobChannel）
 
@@ -62,7 +77,7 @@ drive v1 的 `files/upload_all` 只有「新增」语义：同一目录再传一
 
 1. 开发者后台 →「凭证与基础信息」拿 App ID / App Secret。
 2. 「权限管理」开通云空间文件权限：`drive:drive`（查看、评论、编辑和管理云空间中所有文件）
-   是列目录/读写的前提，再加上传、下载、删除相关项（通道要传文件、删旧快照、改名）。
+   是列目录/读写的前提，再加上传、下载、删除相关项（通道要传文件、删旧快照）。
 3. **「添加应用能力」→ 添加「机器人」**。
 4. 飞书客户端新建群 → 把应用加为群机器人 → 云盘把目标文件夹**分享给该群，给「可管理」**。
    个人云空间的文件夹不会自动对 `tenant_access_token` 开放；官方明确说直接把应用加为
@@ -75,6 +90,8 @@ drive v1 的 `files/upload_all` 只有「新增」语义：同一目录再传一
 | --- | --- | --- |
 | `1061004 forbidden` on `/drive/v1/files` | 应用身份对该文件夹没有访问权 | 回到第 3～5 步；可用「不带 folder_token 列根目录」对照：根目录成功、指定文件夹失败即为此因 |
 | `1061002 params error` on `/files/upload_all` | 请求体参数不合法 | **程序侧问题，本版已修**：`upload_all` 必填 `size`（文件字节数），见 `uploadAll`；用户不用改配置 |
+| `invalid character 'p' after top-level value` on `/files/{token}/rename` | 旧版去调了不存在的改名接口，飞书返回 `404 page not found` 纯文本，Go 把开头的 `404` 当成 JSON 数字再撞上后面的 `p` | **程序侧问题，本版已修**：改用「正式名直传 + 精确删旧」，不再有 rename 这一步；升级客户端后重新同步即可自愈 |
+| `1061001` / `1061007` on `DELETE /files/{token}` | 另一轮同步已经把同一个旧文件删了（并发覆盖写） | **程序侧问题，本版已修**：删除改成幂等，复查列目录确认已不在即视为成功；历史残留删不掉也不阻断同步 |
 | `1061005 auth failed` | 凭证错 / token 无效 | 检查 App ID、App Secret、以及发布版本是否生效 |
 
 `uploadAll` 的 multipart 字段固定为 `file_name` / `parent_type=explorer` / `parent_node` /
@@ -93,32 +110,34 @@ drive v1 的 `files/upload_all` 只有「新增」语义：同一目录再传一
 | `appToken` | feishuBase | 是 | 多维表格 app_token |
 | `tablePrefix` | feishuBase | 否 | 数据表名前缀，默认 `pf_` |
 
-应用需要申请的权限（scope）：drive 文件的上传/下载/删除/改名，bitable 应用与表的读写
-（对应 v1 endpoints，全部走 `tenant_access_token`）。
+应用需要申请的权限（scope）：drive 文件的上传/下载/删除/列目录，bitable 应用与表的读写
+（对应 v1 endpoints，全部走 `tenant_access_token`）。**没有「改名」权限项，也不需要申请。**
 
 ## 使用的 endpoint
 
 - 鉴权：`POST /open-apis/auth/v3/tenant_access_token/internal`（token 缓存至临近过期，401 续签一次后重试）
 - Drive：`GET /open-apis/drive/v1/files`（列目录，分页）、`POST /open-apis/drive/v1/files/upload_all`、
-  `GET /open-apis/drive/v1/files/{file_token}/download`、`DELETE /open-apis/drive/v1/files/{file_token}`、
-  `PATCH /open-apis/drive/v1/files/{file_token}/rename`
+  `GET /open-apis/drive/v1/files/{file_token}/download`、`DELETE /open-apis/drive/v1/files/{file_token}`
 - Base：`GET|POST /open-apis/bitable/v1/apps/{app_token}/tables`、
   `GET|POST .../tables/{table_id}/fields`、`GET .../tables/{table_id}/records`（page_size≤500，page_token 翻全）、
   `.../records/batch_create|batch_update|batch_delete`
+
+> 已确认不存在、不要再用的 endpoint：`PATCH /open-apis/drive/v1/files/{file_token}/rename`
+> （HTTP 404 纯文本）。曾据此设计过覆盖写，2026-11-09 真实环境报错后移除。
 
 ## 形状存疑点（已做成可配置路径变量，见 client.go）
 
 真实环境与文档不符时改这些包级变量即可，不用动调用点：
 
-1. `pathDriveRename`：PATCH `/files/{file_token}/rename?file_token=…` + body `{"new_name":…}` 的
-   方法与查询参数组合不完全确定；
-2. `pathDriveDelete` 与 `driveDeleteQueryType`：DELETE `/files/{file_token}` 的 `type` 查询参数是否必填存疑；
-3. 列目录分页游标键 `page_token` / `next_page_token`：两种都兼容（`drivePageTokenKey`）；
-4. 建表响应的 `table_id` 是否包一层 `table`：两种都认，并兜底重列按名查找；
-5. drive 文件的 `created_at` 数字/字符串两种形状都兼容（`json.RawMessage` 宽松解析）。
+1. `pathDriveDelete` 与 `driveDeleteQueryType`：DELETE `/files/{file_token}` 的 `type` 查询参数是否必填存疑；
+2. 列目录分页游标键 `page_token` / `next_page_token`：两种都兼容（`drivePageTokenKey`）；
+3. 建表响应的 `table_id` 是否包一层 `table`：两种都认，并兜底重列按名查找；
+4. drive 文件的 `created_at` 数字/字符串两种形状都兼容（`json.RawMessage` 宽松解析）。
 
 ## 限速与错误处理
 
 HTTP 200 里的非零业务 `code`（`99991400` 全局限流，见 `retryAPICodes`）与 429/5xx 一并按指数退避
 重试（`retryBaseDelay`，服从 `Retry-After`），上限 `maxAttempts`；分页拿不到下一页游标、
 `payload` 缺失或解析失败都会报错中断本轮，绝不静默产出残缺快照。所有请求尊重 ctx 取消。
+非 2xx 响应先判状态码：能解出飞书错误 envelope 就报 `HTTP xxx (code=…): msg`，解不出就报
+`HTTP xxx（响应不是飞书错误体）: "响应片段"`，不再把 404 明文硬塞给 JSON 解析器。

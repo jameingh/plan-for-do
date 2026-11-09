@@ -812,7 +812,13 @@ func (a *API) SyncNow(name string) ([]plansync.Result, error) {
 		r, err = a.syncMgr.SyncOne(ctx, name)
 		results = []plansync.Result{r}
 	}
-	a.emit("sync:done", results)
+	// 单通道失败时 err 会直接回给调用方（由 act 弹一次错误 toast），
+	// 这里就不再发 sync:done，免得同一处失败又冒出一条绿色「同步完成」。
+	// SyncAll 的部分失败不走 err：错误在各条 Result.skipped 里，事件照发，
+	// 由前端逐条区分「正常跳过」与「失败」。
+	if err == nil {
+		a.emit("sync:done", results)
+	}
 	return results, err
 }
 

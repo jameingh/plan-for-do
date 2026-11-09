@@ -27,9 +27,9 @@ const (
 	DefaultBlobFileName     = sync.BlobArchiveFileName
 )
 
-// 覆盖写过程中过渡文件的命名前缀，见 saveObject 的覆盖策略注释。
-// 快照与归档各用一个前缀：Save 会清理「自己前缀」的残留文件，
-// 共用前缀会让一次快照覆盖把归档刚上传还没改名的临时文件删掉。
+// 探针文件与旧版本遗留过渡文件的前缀。新版本不再生成过渡文件（见 saveObject），
+// 但必须继续清理这些前缀：2026-11-09 之前失败轮留在云盘里的 .planfordo-tmp-*
+// 只有被认出来才会被回收，否则永远占着目录。
 const (
 	tmpFilePrefix     = ".planfordo-tmp-"
 	blobTmpFilePrefix = ".planfordo-blob-tmp-"
@@ -151,10 +151,9 @@ func (d *Drive) Probe(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// 探针残留无害：Save 会把 tmp 前缀的文件一并清掉，这里尽力删一次而已。
-	if err := d.deleteFile(ctx, token); err != nil {
-		return fmt.Errorf("feishu: 云盘可写但探针清理失败（不影响同步，残留文件下轮会被回收）: %w", err)
-	}
+	// 探针残留无害：上传成功已经证明可写，删不掉也不该推翻这个结论；
+	// 残留文件由下一次 saveObject 尽力回收。
+	_ = d.deleteFile(ctx, token)
 	return nil
 }
 
@@ -204,47 +203,117 @@ func (d *Drive) LoadBlob(ctx context.Context) (*sync.BlobArchive, error) {
 }
 
 // 覆盖策略（为什么）：drive v1 的 files/upload_all 只有「新增」语义——同名文件再传
-// 一次会变成目录里并存的第二份，不会替换；带 file_token 的内容更新接口 v1 也没有
-// 可用的（medias 更新是给文档内嵌素材的）。所以「删旧建新」是唯一能做出覆盖语义的路，
-// 而且必须显式删，绝不能靠再传一个同名文件。
+// 一次会成为目录里并存的第二份（实测：两次上传拿到两个不同 file_token，列目录两份都在），
+// 不会替换。飞书云盘 v1 也**没有可用的改名接口**：PATCH /files/{token}/rename
+// 实测返回 HTTP 404 + 纯文本 "404 page not found"（2026-11-09），官方文档里
+// 也没有这个 endpoint。所以「先以正式名上传新文件，再按 token 精确删掉其它同名」
+// 是唯一能做出覆盖语义的路，绝不能假设「传个同名文件就等于覆盖」。
 //
-// 分三步：先以临时名上传新文件，成功后才删旧正式文件与上轮崩溃留下的临时文件，
-// 最后把新文件改名成正式名。任意时刻被打断，远端要么「旧文件完好」要么
-// 「没有这个文件」：后者与首轮同步起点相同，引擎下一轮会重新推全量，不会丢。
-// 反过来若先删后传，上传失败就会把远端掏空。任何一步失败都直接报错。
+// 分两步：先列目录收集旧正式文件与历史临时残留的 token，再以正式名上传新内容
+// （upload_all 返回新的 file_token），上传成功后才删旧。任意时刻被打断：
+//   - 上传失败：远端仍是旧文件，完好；
+//   - 上传成功、删旧失败：远端同时有新旧两份同名，loadObject 按创建时间取最新，
+//     下一轮 Save 会把旧的也清掉。
+//
+// 不存在「旧文件已删、新文件还没发布」的空窗——早期「临时名 + 改名」方案正是
+// 卡在改名这一步，把正式快照丢在远端之外。
+//
+// 删旧是幂等的：并发覆盖写时另一轮可能已经删掉了同一个 token，飞书会回
+// 1061001 / 1061007 之类的错误；复查一次列目录确认文件已不在就当成功。
+// 只有「旧正式文件确实还在、删不掉」才报错，因为它可能让 loadObject 挑回旧内容。
+// 至于旧版本遗留的临时残留，删不掉只影响云盘卫生，一律下一轮再试，不阻断本轮。
 //
 // 快照与 blob 归档各是一个 driveObject：只清自己名字的旧文件与自己前缀的临时文件，
-// 免得一次快照覆盖把归档刚上传、还没改名的临时文件顺手删掉。
+// 免得一次快照覆盖把归档刚上传的文件顺手删掉。
 func (d *Drive) saveObject(ctx context.Context, obj driveObject, raw []byte) error {
 	files, err := d.listFiles(ctx)
 	if err != nil {
 		return err
 	}
-	var stale []string
+	var official, leftovers []string
 	for _, f := range files {
 		if f.Type == "folder" {
 			continue
 		}
-		if f.Name == obj.fileName || strings.HasPrefix(f.Name, obj.tmpPrefix) {
-			stale = append(stale, f.Token)
+		if f.Name == obj.fileName {
+			official = append(official, f.Token)
+		} else if strings.HasPrefix(f.Name, obj.tmpPrefix) {
+			leftovers = append(leftovers, f.Token)
 		}
 	}
-	token, err := d.uploadAll(ctx, d.tmpName(obj.tmpPrefix), raw)
+	// 直接以正式名上传：同名会并存成第二份，用本轮返回的 token 把其它同名精确删掉。
+	// 不再有「改名发布」这一步——那个接口在飞书 v1 里不存在（见上方注释）。
+	token, err := d.uploadAll(ctx, obj.fileName, raw)
 	if err != nil {
 		return err
 	}
-	for _, t := range stale {
-		if t == token {
+	// 上传后再列一次目录：另一轮并发可能在我们「列目录 → 上传」之间也写了一份同名文件，
+	// 上传前那次列目录看不见它。两次看到的同名 token 合并，除本轮 token 外全部删掉。
+	// 不这么做的话，引擎在「本地无新增 / 远端 revision 非 0」时会整轮跳过 Save，
+	// 重复文件就永远没人清了。极端并发下两端可能把对方的文件都删掉，
+	// 那等价于首轮空远端：引擎下一轮 Load 空快照、Revision=0，会重推全量自愈。
+	after, err := d.listFiles(ctx)
+	if err != nil {
+		// 新文件已完整存在，复查失败不该把一次成功写入报成失败。
+		return nil
+	}
+	targets := map[string]bool{}
+	for _, t := range official {
+		if t != token {
+			targets[t] = true
+		}
+	}
+	leftover := map[string]bool{}
+	for _, t := range leftovers {
+		leftover[t] = true
+	}
+	for _, f := range after {
+		if f.Type == "folder" {
 			continue
 		}
-		if err := d.deleteFile(ctx, t); err != nil {
-			return fmt.Errorf("feishu: 清理旧%s失败（新%s已完整存在，下一轮会重新覆盖）: %w", obj.label, obj.label, err)
+		if f.Name == obj.fileName && f.Token != token {
+			targets[f.Token] = true
+		}
+		if strings.HasPrefix(f.Name, obj.tmpPrefix) {
+			leftover[f.Token] = true
 		}
 	}
-	if err := d.rename(ctx, token, obj.fileName); err != nil {
-		return fmt.Errorf("feishu: 发布新%s失败，远端暂时没有正式%s；引擎下一轮会重推: %w", obj.label, obj.label, err)
+	// 旧正式文件必须清掉，否则 loadObject 在 created_at 相同的那一秒里
+	// 会按 token 字典序挑，可能挑回旧的。但删除失败有两种：真的没删掉，
+	// 或另一轮/另一台设备已经把它删了（并发覆盖写，实测飞书回 1061001 /
+	// 1061007 而不是成功）。后者复查一次列目录即可判幂等，不该报同步失败。
+	for t := range targets {
+		if err := d.deleteFile(ctx, t); err != nil {
+			gone, checkErr := d.fileGone(ctx, t)
+			if checkErr != nil {
+				return fmt.Errorf("feishu: 清理旧%s失败且复查列目录也失败: %w（复查: %v）", obj.label, err, checkErr)
+			}
+			if !gone {
+				return fmt.Errorf("feishu: 清理旧%s失败（新%s已完整存在，下一轮会重新覆盖）: %w", obj.label, obj.label, err)
+			}
+		}
+	}
+	// 历史临时残留只影响云盘卫生，不影响读取：删不掉就下一轮再试，绝不阻断同步。
+	// 旧版本失败轮留下的 .planfordo-tmp-* 常出现「已被另一轮删掉」的并发错误，
+	// 把它当成致命错误会让用户永远同步不成功。
+	for t := range leftover {
+		_ = d.deleteFile(ctx, t)
 	}
 	return nil
+}
+
+// fileGone 复查某个 token 是否已不在远端，用于把「重复删除」判成成功。
+func (d *Drive) fileGone(ctx context.Context, token string) (bool, error) {
+	files, err := d.listFiles(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, f := range files {
+		if f.Token == token {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // Save 覆盖写快照。
@@ -324,15 +393,9 @@ func (d *Drive) deleteFile(ctx context.Context, token string) error {
 	return d.cli.call(ctx, http.MethodDelete, fmt.Sprintf(pathDriveDelete, token), q, nil, nil)
 }
 
-func (d *Drive) rename(ctx context.Context, token, newName string) error {
-	q := url.Values{"file_token": {token}}
-	return d.cli.call(ctx, http.MethodPatch, fmt.Sprintf(pathDriveRename, token), q,
-		map[string]string{"new_name": newName}, nil)
-}
-
-// tmpName 混入纳秒时间与随机后缀：多台设备共用同一个文件夹，只靠时间戳
-// 在时钟回拨时会撞名，撞名的两个过渡文件会互相覆盖删除。
-// prefix 区分快照与归档，见 saveObject 的说明。
+// tmpName 混入纳秒时间与随机后缀，只用于 Probe 的写探针：多台设备共用同一个
+// 文件夹，只靠时间戳在时钟回拨时会撞名。探针刻意不叫正式名，避免一次连通性
+// 测试就在云盘里留下同名快照；清理失败时残留也会被下一轮 saveObject 回收。
 func (d *Drive) tmpName(prefix string) string {
 	b := make([]byte, 4)
 	if _, err := rand.Read(b); err != nil {

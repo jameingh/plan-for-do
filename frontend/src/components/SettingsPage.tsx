@@ -68,9 +68,9 @@ export function SettingsPage() {
 
   async function syncAll() {
     await act("同步", async () => {
-      const rs = await api.SyncNow("");
-      setResults(rs);
-      toast(`同步完成（${rs.length} 条通道）`);
+      // 成功/失败 toast 统一由 sync:done 事件处理（顶栏「立即同步」走同一条链），
+      // 这里再弹一次只会重复，并且曾经把失败通道也报成「同步完成」。
+      setResults(await api.SyncNow(""));
     });
   }
 
@@ -267,7 +267,7 @@ export function SettingsPage() {
                 {results.map((r) => (
                   <div key={r.channel} className="muted small" style={{ marginTop: 4 }}>
                     {r.channel}：应用 {r.applied} · 上推 {r.pushed} · 冲突 {r.conflicts} · 版本 {r.revision}
-                    {r.skipped ? ` · 跳过原因：${r.skipped}` : ""}
+                    {r.skipped ? ` · ${r.skipped === "本地无待推送内容" ? `跳过：${r.skipped}` : `失败：${r.skipped}`}` : ""}
                     {(r.blobsApplied || r.blobsPushed || r.blobsRejected) ? ` · 附件字节：补 ${r.blobsApplied ?? 0} / 上推 ${r.blobsPushed ?? 0}${r.blobsRejected ? ` / 跳过坏条目 ${r.blobsRejected}` : ""}` : ""}
                     {r.blobsSkipped ? ` · 附件字节：${r.blobsSkipped}` : ""}
                   </div>
