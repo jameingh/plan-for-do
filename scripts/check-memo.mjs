@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { probeExpr, judgePopup } from "./lib/geom.mjs";
 
 // 仓库根：CI runner 的路径与本机不同，所有 tmp/ 位置都从这里推，不写死绝对路径。
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -354,7 +355,7 @@ const n2 = await num(".body-memo-item");
 check("再删一条：列表又少一条", n2 === n0 - 1, n0 + " → " + n2);
 await click(".delete-note");
 await sleep(400);
-await click(".item-select");
+await click(".rb-item-select");
 await click(".text-delete");
 await sleep(300);
 check("彻底删除确认文案原文", (await txt(".confirm-head")) === "删除备忘录" && (await txt(".confirm-intro")) === "确定要永久删除备忘录，删除后不可找回",
@@ -372,6 +373,36 @@ console.log("\n=== 备忘录：内核状态核对 ===");
 snap = dbRows();
 check("memo 与 memoFolder 两类记录都在库里", snap.memos >= 3 && snap.folderRows.length >= 1, JSON.stringify({ memos: snap.memos, folders: snap.folderRows }));
 check("正文里保留了富文本标签", snap.rows.some((r) => /<(p|b|ul|font|input)/.test(r.html || "")), JSON.stringify(snap.rows.map((r) => (r.html || "").slice(0, 40))));
+
+console.log("\n=== 备忘录：弹层几何（定位 / 不溢出）===");
+// 2026-11-09 用户定的必测两项。这两条当天就抓到三个真问题：排序菜单飘到编辑区、
+// 背景图弹层有一半在视口外、回收站复选框的全局 margin 漏进菜单选中行把行顶出菜单框。
+// 判据见 scripts/lib/geom.mjs；全应用范围的同一套检查在 scripts/check-popup.mjs。
+const GEO = [
+  { label: "排序方式菜单", open: async () => click(".icon-folder-more"), popup: ".menu-box", anchor: ".icon-folder-more" },
+  { label: "文件夹下拉", open: async () => click(".icon-folder-select"), popup: ".folder-box", anchor: ".icon-folder-select" },
+  { label: "文字颜色", open: async () => click(".color-item"), popup: ".color-box", anchor: ".color-item" },
+  { label: "背景颜色", open: async () => click(".bg-item"), popup: ".color-box", anchor: ".bg-item" },
+  { label: "背景图选择", open: async () => click(".icon-item[aria-label='选择背景']"), popup: ".back-box", anchor: ".icon-item[aria-label='选择背景']" },
+  { label: "标题栏移入文件夹", open: async () => click(".note-folder"), popup: ".folder-box.is-setfolder", anchor: ".note-folder" },
+];
+// 工具条那几项要有一条**打开着**的备忘录才在（编辑器没开就没有工具条）。
+if (!(await num(".body-memo-item"))) { await click(".create-note"); await sleep(800); }
+await click(".body-memo-item");
+await sleep(600);
+for (const g of GEO) {
+  try {
+    await g.open();
+    await sleep(360);
+    const probe = await evalJs(probeExpr(g.popup, g.anchor));
+    const judged = judgePopup(probe ? JSON.parse(probe) : null, { anchorMode: "element" });
+    check(g.label + "：定位正确且内容不溢出", judged.ok, judged.problems.join("；"));
+  } catch (e) {
+    check(g.label + "：定位正确且内容不溢出", false, String(e.message).slice(0, 90));
+  }
+  await key("Escape");
+  await sleep(220);
+}
 
 console.log("\n结果：通过 " + pass + "，失败 " + fail);
 fs.mkdirSync("tmp/memo", { recursive: true });   // tmp/ 不在版本库里，干净 runner 上目录不存在

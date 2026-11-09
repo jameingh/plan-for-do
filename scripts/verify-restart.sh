@@ -8,7 +8,10 @@ cd "$(dirname "$0")/.."
 # 要指到别处用 PLANDO_VDATA / PLANDO_VPROFILE 覆盖（CI 与 snapshot-real 共用同一套变量名）。
 ROOT=$(pwd -W 2>/dev/null || pwd)
 DATA_DIR="${PLANDO_VDATA:-$ROOT/tmp/vdata}"
-PROFILE_DIR="${PLANDO_VPROFILE:-$ROOT/tmp/vprofile}"
+# WebView2 的 profile 每次都换新的：同名目录被上一轮的 msedgewebview2.exe 锁着时，
+# rm 删不掉，脚本会以为「还有进程占着数据目录」而退出（2026-11-09 踩过好几次）。
+# 换成带 PID 的新目录就永远不会被锁；旧的顺手清掉（清不掉就算了）。
+PROFILE_DIR="${PLANDO_VPROFILE:-$ROOT/tmp/vprofile-$$}"
 PORT="${1:-9255}"
 TAB="${2:-list}"
 
@@ -18,16 +21,27 @@ CGO_ENABLED=0 go build -o bin/planfordo-verify.exe .
 # 先把上一个自检实例彻底杀掉再删数据目录：进程还活着时 SQLite 文件是锁着的，
 # rm 会失败，而 set -e 让脚本在这里退出——偏偏管道把这条错误吞掉了，
 # 结果是「种子往旧库里再灌一遍」，条数类断言全成假的（2026-11-08 就这么被骗过一次）。
-powershell -NoProfile -Command "Get-Process planfordo-verify -ErrorAction SilentlyContinue | Stop-Process -Force" 2>/dev/null || true
+# 用 taskkill 而不是 powershell：后者在受限 shell 里常被拦掉，拦掉就等于没杀，
+# 后面的 rm 必然失败（2026-11-09 踩过）。
+taskkill //F //IM planfordo-verify.exe >/dev/null 2>&1 || true
 for i in $(seq 1 12); do
   pgps=$(tasklist //FI "IMAGENAME eq planfordo-verify.exe" 2>/dev/null | grep -c planfordo-verify.exe || true)
   [ "$pgps" = "0" ] && break
   sleep 1
 done
-if ! rm -rf "$DATA_DIR" "$PROFILE_DIR" 2>/dev/null; then
-  echo "删不掉 $DATA_DIR：还有进程占着数据目录（tasklist 看 planfordo-verify.exe），先手动结束再跑" >&2
+if ! rm -rf "$DATA_DIR" 2>/dev/null; then
+  # WebView2 的子进程比主进程晚几百毫秒才释放数据目录，
+  # 主进程没了目录还锁着，rm 必然失败。重试几次通常就好了（2026-11-09 踩过）。
+  for i in $(seq 1 15); do
+    rm -rf "$DATA_DIR" 2>/dev/null && break
+    sleep 1
+  done
+fi
+if [ -d "$DATA_DIR" ]; then
+  echo "删不掉 $DATA_DIR：还有进程占着数据目录（tasklist 看 planfordo-verify.exe / msedgewebview2.exe），先手动结束再跑" >&2
   exit 1
 fi
+rm -rf "$ROOT"/tmp/vprofile-* 2>/dev/null || true   # 旧 profile 顺手清掉，删不掉不拦
 mkdir -p "$DATA_DIR" "$PROFILE_DIR"
 PLANDO_DATA_DIR="$DATA_DIR" PLANDO_WEBVIEW_PROFILE="$PROFILE_DIR" \
 PLANDO_CDP_PORT="$PORT" PLANDO_START_TAB="$TAB" \

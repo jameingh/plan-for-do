@@ -115,6 +115,11 @@ jobs:
           - script: check-focus.mjs
             tab: focus
             seed: seed-focus.sh
+          # 弹层几何：每个浮层都要过「定位」与「不溢出」两项（2026-11-09 用户定的必测项）。
+          # 这个脚本自己会切模块，所以起始页给哪个都行。
+          - script: check-popup.mjs
+            tab: list
+            seed: ""
 
     steps:
       - uses: actions/checkout@v4
