@@ -26,7 +26,7 @@ export function Rail({ page }: { page: Page }) {
   const [menu, setMenu] = useState(false);
   return (
     <nav className={"rail" + (menu ? " is-menu" : "")} aria-label="模块">
-      <button className="rail-avatar" title="功到" aria-haspopup="menu" aria-expanded={menu}
+      <button className="rail-avatar" title="功到" aria-label="账户菜单" aria-haspopup="menu" aria-expanded={menu}
         onClick={() => setMenu((v) => !v)}>功</button>
       {menu && <AvatarMenu onClose={() => setMenu(false)} />}
       {MODULES.map((m) => (

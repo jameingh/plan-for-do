@@ -1442,8 +1442,10 @@ iframe.edit-iframe { display: block; width: 100%; height: 100%; border: 0;
   width: calc(var(--m-rem) * 2.4); position: absolute; left: calc(var(--m-rem) * 4.15);
   top: calc(var(--m-rem) * .6); }
 .menu-box.is-mouse { position: fixed; width: auto; left: 0; top: 0; }
+/* 右侧留 .34rem 空档：选中行的对勾是 position:absolute 贴在右边，
+   不留位会压到最后一个字上 */
 .menu-box .item { width: 100%; box-sizing: border-box; height: calc(var(--m-rem) * .4);
-  padding: 0 calc(var(--m-rem) * .17); font-size: calc(var(--m-rem) * .15); color: var(--text);
+  padding: 0 calc(var(--m-rem) * .34) 0 calc(var(--m-rem) * .17); font-size: calc(var(--m-rem) * .15); color: var(--text);
   line-height: calc(var(--m-rem) * .4); position: relative; white-space: nowrap; }
 .menu-box .item:hover { background: #f0f0f0; }
 .menu-box .item.item-selected { background: rgba(3, 161, 126, .1); }
@@ -1534,12 +1536,15 @@ iframe.edit-iframe { display: block; width: 100%; height: 100%; border: 0;
 .body-recycle-bin .memo-items { flex: 1; min-height: 0; margin-top: calc(var(--m-rem) * .3);
   padding: 0 calc(var(--m-rem) * .22); }
 .body-recycle-bin .memo-item { display: flex; align-items: center; margin-bottom: calc(var(--m-rem) * .2); }
-.item-select, .item-selected { flex: none; width: calc(var(--m-rem) * .2); height: calc(var(--m-rem) * .2);
+/* 回收站的行前复选框。类名带 rb- 前缀：早先叫 .item-select/.item-selected，
+   和菜单/文件夹列表的「选中行」同名，全局规则会把 margin/border/白色对勾
+   一起漏进那些 <li>，导致选中行整体右移 .24rem 并溢出菜单框。 */
+.rb-item-select, .rb-item-selected { flex: none; width: calc(var(--m-rem) * .2); height: calc(var(--m-rem) * .2);
   margin: 0 calc(var(--m-rem) * .24); padding: 0; border: 1px solid var(--text-3);
   border-radius: calc(var(--m-rem) * .04); background: var(--surface); position: relative; }
-.item-selected { border-color: var(--brand); background: var(--brand); }
+.rb-item-selected { border-color: var(--brand); background: var(--brand); }
 /* 对勾：两段边框转 45°，不依赖任何图标资源 */
-.item-selected::after, .icon-selected-all::after { content: ""; position: absolute;
+.rb-item-selected::after, .icon-selected-all::after { content: ""; position: absolute;
   left: calc(var(--m-rem) * .05); top: calc(var(--m-rem) * .01);
   width: calc(var(--m-rem) * .06); height: calc(var(--m-rem) * .11); border: solid #fff;
   border-width: 0 2px 2px 0; transform: rotate(45deg); }

@@ -10,7 +10,7 @@
 //   · 只有点「保存」或切到另一条备忘录才落库；离开本页静默丢弃（参考站就是这样）
 //   · 搜索只在回车时过滤，并把命中词标红（±30 字窗口）；搜索态下丢掉置顶优先级
 //   · 删除只进回收站；回收站里恢复 / 彻底删除各带一次确认
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { Attachment, Memo, MemoFileKind, MemoFolder, MemoInput, MemoItem, MemoSort } from "../api/types";
 import { MemoFile } from "../api/types";
@@ -75,6 +75,41 @@ const MEMO_BACKS: { id: string; css: string }[] = [
   { id: "cool", css: "linear-gradient(180deg,#f4f8fa,#e8f0f4)" },
 ];
 
+/** 弹层的落位信息。right 只有「元素触发」时才有（鼠标触发的右键菜单没有触发器）。 */
+type At = { x: number; y: number; right?: number };
+
+/**
+ * 浮层贴边保护：浮层按触发器位置摆好后，可能被视口右边/下边切掉。
+ * 2026-11-09 背景图弹层就有一半在屏幕外（工具栏最右，弹层 3rem 宽）。
+ * 这里量出实际尺寸再决定最终落位：
+ *   · 默认贴着触发器左边；align="end" 时贴右边（排序菜单就该右对齐，否则会横着伸进编辑区）；
+ *   · 右边放不下就改成贴视口右边；下边放不下就往上顶。
+ * 用 offsetWidth/offsetHeight 量（不受 transform 影响），所以修正量不会来回抖。
+ */
+function useEdgeGuard(at: At, align: "start" | "end" = "start") {
+  // 用 callback ref 而不是 useRef<HTMLElement>：同一个 hook 要挂到 ul / div 两种元素上，
+  // useRef 的类型对不上会报 TS2322；callback ref 的参数类型 HTMLElement 是超集，各元素都能接。
+  const [el, setEl] = useState<HTMLElement | null>(null);
+  const ref = useCallback((node: HTMLElement | null) => setEl(node), []);
+  const [pos, setPos] = useState({ left: at.x, top: at.y });
+  useLayoutEffect(() => {
+    if (!el) return;
+    const w = el.offsetWidth, h = el.offsetHeight;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    let left = align === "end" && at.right !== undefined ? at.right - w : at.x;
+    if (left + w > vw - 8) {
+      // 右对齐放不下：先试左对齐触发器，再退到贴视口右边
+      if (align === "end" && at.x + w <= vw - 8) left = at.x;
+      else left = vw - 8 - w;
+    }
+    if (left < 8) left = 8;
+    let top = at.y;
+    if (top + h > vh - 8) top = Math.max(8, vh - 8 - h);
+    setPos((p) => (p.left === left && p.top === top ? p : { left, top }));
+  });
+  return { ref, style: { left: pos.left, top: pos.top } };
+}
+
 export function MemosPage() {
   const { booted, revision, settings } = useApp();
   const [folders, setFolders] = useState<MemoFolder[]>([]);
@@ -87,7 +122,7 @@ export function MemosPage() {
   const [draft, setDraft] = useState<MemoInput>(emptyDraft());
   const [dirty, setDirty] = useState(false);
   const [popup, setPopup] = useState<Popup>("");
-  const [at, setAt] = useState({ x: 0, y: 0 });
+  const [at, setAt] = useState<At>({ x: 0, y: 0 });
   const [handleID, setHandleID] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
   const [style, setStyle] = useState<MemoStyle>(baseStyle());
@@ -95,8 +130,17 @@ export function MemosPage() {
   const [backPage, setBackPage] = useState(0);
   const editor = useRef<MemoEditorHandle | null>(null);
   const filePick = useRef<Partial<Record<MemoFileKind, HTMLInputElement | null>>>({});
+  const moreBtn = useRef<HTMLDivElement | null>(null);
   const state = useRef({ draft, open });
   state.current = { draft, open };
+
+  // 每个浮层一套贴边保护。只有真正渲染出来的那套 ref 非空，其余直接跳过。
+  const gSort = useEdgeGuard(at, "end");   // 排序菜单：右对齐「…」，否则会伸进编辑区
+  const gFont = useEdgeGuard(at);           // 字体 / 字号
+  const gColor = useEdgeGuard(at);          // 文字色 / 背景色
+  const gBack = useEdgeGuard(at);           // 背景图
+  const gCtx = useEdgeGuard(at);            // 列表右键菜单（跟着鼠标）
+  const gMove = useEdgeGuard(at);           // 右键「移入文件夹」
 
   // 参考站：筛选目标文件夹不存在时自动回落「全部」（evidence-memo-bundle §4 末「其他实现细节」）。
   // 删掉当前文件夹后如果还留着那个 id，列表会空掉——就是这种时候最容易发现。
@@ -284,8 +328,12 @@ export function MemosPage() {
           <div className="text-folder-name my-cursor" onClick={pickFolder}>{folderName}</div>
           <div className={"icon-folder-select my-cursor" + (popup === "folder" ? " is-on" : "")} role="button"
             aria-label="切换文件夹" onClick={pickFolder}><I n="chevronDown" size={11} /></div>
-          <div className="icon-folder-more my-cursor" role="button" aria-label="排序与文件夹管理"
-            onClick={() => setPopup(popup === "sort" ? "" : "sort")}><I n="dots" size={15} /></div>
+          <div className="icon-folder-more my-cursor" role="button" aria-label="排序与文件夹管理" ref={moreBtn}
+            onClick={() => {
+              const r = moreBtn.current?.getBoundingClientRect();
+              if (r) setAt({ x: r.x, y: r.bottom + 2, right: r.right });
+              setPopup(popup === "sort" ? "" : "sort");
+            }}><I n="dots" size={15} /></div>
         </div>
 
         <div className="memo-search-box">
@@ -352,18 +400,17 @@ export function MemosPage() {
                 open={popup === "font"} onToggle={(k, pos) => { setAt(pos); setPopup(popup === "font" ? "" : k); }} />
               <i className="line-item" />
               <Pick kind="size" label={String(MEMO_SIZES.includes(style.size) ? style.size : 16)}
-                open={popup === "size"} onToggle={(k, pos) => { setAt(pos); setPopup(popup === "size" ? "" : k); }} />
-              <div className={"icon-item" + (style.bold ? " is-on" : "")} role="button" aria-label="加粗" onClick={() => toolbar("bold")}><b className="g">B</b></div>
+                open={popup === "size"} onToggle={(k, pos) => { setAt(pos); setPopup(popup === "size" ? "" : k); }} />              <div className={"icon-item" + (style.bold ? " is-on" : "")} role="button" aria-label="加粗" onClick={() => toolbar("bold")}><b className="g">B</b></div>
               <div className={"icon-item" + (style.italic ? " is-on" : "")} role="button" aria-label="斜体" onClick={() => toolbar("italic")}><i className="g">I</i></div>
               <div className={"icon-item" + (style.underline ? " is-on" : "")} role="button" aria-label="下划线" onClick={() => toolbar("underline")}><u className="g">U</u></div>
               <div className={"icon-item" + (style.strike ? " is-on" : "")} role="button" aria-label="删除线" onClick={() => toolbar("strikeThrough")}><s className="g">S</s></div>
-              <div className="block-item color-item my-cursor"
-                onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setAt({ x: r.x, y: r.bottom + 2 }); setPopup(popup === "color" ? "" : "color"); }}>
+              <div className="block-item color-item my-cursor" role="button" aria-label="文字颜色"
+                onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setAt({ x: r.x, y: r.bottom + 2, right: r.right }); setPopup(popup === "color" ? "" : "color"); }}>
                 <span className="g">A</span><i className="color-stripe" style={{ background: style.color }} />
                 <span className="icon-corner-mark" />
               </div>
-              <div className="block-item bg-item my-cursor"
-                onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setAt({ x: r.x, y: r.bottom + 2 }); setPopup(popup === "bgcolor" ? "" : "bgcolor"); }}>
+              <div className="block-item bg-item my-cursor" role="button" aria-label="背景颜色"
+                onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setAt({ x: r.x, y: r.bottom + 2, right: r.right }); setPopup(popup === "bgcolor" ? "" : "bgcolor"); }}>
                 <I n="marker" size={14} /><i className="color-stripe" style={{ background: style.bg }} />
                 <span className="icon-corner-mark" />
               </div>
@@ -378,7 +425,7 @@ export function MemosPage() {
               <div className="icon-item" role="button" aria-label="减少缩进" onClick={() => toolbar("outdent")}><I n="outdent" size={14} /></div>
               <i className="line-item" />
               <div className={"icon-item" + (draft.backImage ? " is-on" : "")} role="button" aria-label="选择背景"
-                onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setAt({ x: r.x, y: r.bottom + 2 }); setPopup(popup === "back" ? "" : "back"); }}>
+                onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setAt({ x: r.x, y: r.bottom + 2, right: r.right }); setPopup(popup === "back" ? "" : "back"); }}>
                 <I n="bgImage" size={14} />
               </div>
               <i className="line-item" />
@@ -415,7 +462,7 @@ export function MemosPage() {
       )}
       {popup === "move" && (
         <Curtain onClose={() => setPopup("")}>
-          <div className="folder-box is-mouse" style={{ left: at.x, top: at.y }} onMouseDown={(e) => e.stopPropagation()}>
+          <div className="folder-box is-mouse" ref={gMove.ref} style={gMove.style} onMouseDown={(e) => e.stopPropagation()}>
             <FolderList folders={folders} selected={items.find((i) => i.memo.id === handleID)?.memo.folderId || ""} onPick={moveInto} />
           </div>
         </Curtain>
@@ -430,7 +477,7 @@ export function MemosPage() {
       )}
       {popup === "sort" && (
         <Curtain onClose={() => setPopup("")}>
-          <ul className="menu-box" onMouseDown={(e) => e.stopPropagation()}>
+          <ul className="menu-box is-mouse" ref={gSort.ref} style={gSort.style} onMouseDown={(e) => e.stopPropagation()}>
             <li className="item-title">排序方式</li>
             {SORTS.map((s) => (
               <li key={s.v} className={"item my-cursor" + (sort === s.v ? " item-selected" : "")} onClick={() => chooseSort(s.v)}>
@@ -443,7 +490,7 @@ export function MemosPage() {
       )}
       {popup === "handle" && (
         <Curtain onClose={() => setPopup("")}>
-          <ul className="menu-box is-mouse" style={{ left: at.x, top: at.y }} onMouseDown={(e) => e.stopPropagation()}>
+          <ul className="menu-box is-mouse" ref={gCtx.ref} style={gCtx.style} onMouseDown={(e) => e.stopPropagation()}>
             {(() => {
               const isTop = !!items.find((i) => i.memo.id === handleID)?.memo.isTop;
               return (
@@ -459,7 +506,7 @@ export function MemosPage() {
       )}
       {(popup === "font" || popup === "size") && (
         <Curtain onClose={() => setPopup("")}>
-          <ul className="menu-box is-mouse" style={{ left: at.x, top: at.y }} onMouseDown={(e) => e.stopPropagation()}>
+          <ul className="menu-box is-mouse" ref={gFont.ref} style={gFont.style} onMouseDown={(e) => e.stopPropagation()}>
             {popup === "font" && MEMO_FONTS.map((f) => (
               <li key={f.code} className={"item my-cursor" + (style.family === f.code ? " item-selected" : "")}
                 style={{ fontFamily: f.stack }}
@@ -474,7 +521,7 @@ export function MemosPage() {
       )}
       {(popup === "color" || popup === "bgcolor") && (
         <Curtain onClose={() => setPopup("")}>
-          <div className="color-box" style={{ left: at.x, top: at.y }} onMouseDown={(e) => e.stopPropagation()}>
+          <div className="color-box" ref={gColor.ref} style={gColor.style} onMouseDown={(e) => e.stopPropagation()}>
             {MEMO_COLORS.map((c) => (
               <button key={c} aria-label={`颜色 ${c}`} style={{ background: c }}
                 onClick={() => { toolbar(popup === "color" ? "foreColor" : "hiliteColor", c); setPopup(""); }} />
@@ -484,7 +531,7 @@ export function MemosPage() {
       )}
       {popup === "back" && (
         <Curtain onClose={() => setPopup("")}>
-          <div className="back-box" style={{ left: at.x, top: at.y }} onMouseDown={(e) => e.stopPropagation()}>
+          <div className="back-box" ref={gBack.ref} style={gBack.style} onMouseDown={(e) => e.stopPropagation()}>
             <div className="back-head">选择背景</div>
             <div className="back-grid">
               {MEMO_BACKS.slice(backPage * 8, backPage * 8 + 8).map((b) => (
@@ -589,7 +636,8 @@ function MemoRow({ it, word, active, sortIsEdit, onOpen, onContext }: {
 }) {
   const when = memoWhen(sortIsEdit ? it.memo.updatedAt : it.memo.createdAt);
   return (
-    <div className={"body-memo-item my-cursor" + (active ? " is-active" : "")} onClick={onOpen} onContextMenu={onContext}>
+    <div className={"body-memo-item my-cursor" + (active ? " is-active" : "")} onClick={onOpen} onContextMenu={onContext}
+      role="button" aria-label={`备忘录：${it.memo.title || "无标题"}`}>
       {it.memo.title ? (
         <div className="item-title">{highlight(it.memo.title, word)}</div>
       ) : (
@@ -619,15 +667,16 @@ function Pick({ kind, label, open, onToggle }: {
   kind: "font" | "size";
   label: string;
   open: boolean;
-  onToggle: (p: "font" | "size", at: { x: number; y: number }) => void;
+  onToggle: (p: "font" | "size", at: At) => void;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   return (
     <div ref={ref} className={"block-item tool-pick my-cursor" + (kind === "size" ? " is-size" : "") + (open ? " is-on" : "")}
+      role="button" aria-label={kind === "size" ? "字号" : "字体"}
       onClick={() => {
         const r = ref.current?.getBoundingClientRect();
         if (!r) return;
-        onToggle(kind, { x: r.x, y: r.bottom + 2 });
+        onToggle(kind, { x: r.x, y: r.bottom + 2, right: r.right });
       }}>
       <span className="pick-text">{label}</span><span className="icon-corner-mark" />
     </div>
@@ -774,7 +823,7 @@ function RecycleBin({ picked, setPicked, onClose, askConfirm }: {
         <div className="memo-items">
           {rows.map((r) => (
             <div key={r.memo.id} className="memo-item">
-              <button className={picked.includes(r.memo.id) ? "item-selected" : "item-select"}
+              <button className={picked.includes(r.memo.id) ? "rb-item-selected" : "rb-item-select"}
                 aria-label={`选择 ${r.memo.title || "无标题"}`} onClick={() => toggle(r.memo.id)} />
               {/* 点信息卡同样切换选中：参考站这里也绑了 setSelected */}
               <div className="memo-info my-cursor" onClick={() => toggle(r.memo.id)}>
