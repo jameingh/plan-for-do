@@ -8,7 +8,9 @@ import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { api, bridgeProbe } from "../api/client";
 import type { BackupSummary, CalendarStatus, NotifyInfo, SyncConfig, SyncResult, SyncState } from "../api/types";
+import { copyToClipboard } from "../lib/clipboard";
 import { saveSettings, toast, toastErr, useApp } from "../store/appStore";
+import { FeishuDriveGuide } from "./FeishuDriveGuide";
 import { SingleTab, TopBar } from "./chrome";
 import { Empty, FieldError, I, Modal, Segmented } from "./ui";
 
@@ -20,6 +22,8 @@ export function SettingsPage() {
   const [channels, setChannels] = useState<SyncConfig[]>([]);
   const [editing, setEditing] = useState<SyncConfig | null>(null);
   const [isNew, setIsNew] = useState(false);
+  // feishuDrive 的分步引导；与通用 ChannelModal 互斥，避免两个模态框叠在一起。
+  const [guiding, setGuiding] = useState(false);
   const [busy, setBusy] = useState("");
   const [results, setResults] = useState<SyncResult[] | null>(null);
   const [states, setStates] = useState<Record<string, SyncState>>({});
@@ -105,6 +109,8 @@ export function SettingsPage() {
   }
 
   const implTag = api.impl === "wails" ? "Wails 内核" : api.impl === "mock" ? `内存 mock（${bridgeProbe()}）` : "内核探测中…";
+  // 已有 feishuDrive 通道时，引导打开就直接预填它（密钥保持掩码、不回显）。
+  const existingFeishu = channels.find((c) => c.kind === "feishuDrive") ?? null;
 
   return (
     <>
@@ -216,15 +222,22 @@ export function SettingsPage() {
           <section className="set-block">
             <h5 className="section-title">同步通道</h5>
             <div className="field-row">
-              <button className="btn" onClick={() => { setIsNew(true); setEditing({ name: "", kind: boot?.channelKinds[0] ?? "localdir", enabled: true, options: {} }); setProbeMsg(""); }}>
+              <button className="btn" onClick={() => { setEditing(null); setGuiding(true); }}>
+                <I n="folder" size={14} />{existingFeishu ? "重新引导配置飞书云盘" : "引导配置飞书云盘"}
+              </button>
+              <button className="btn" onClick={() => { setGuiding(false); setIsNew(true); setEditing({ name: "", kind: boot?.channelKinds[0] ?? "localdir", enabled: true, options: {} }); setProbeMsg(""); }}>
                 <I n="plus" size={14} />新增通道
               </button>
               <button className="btn primary" disabled={!!busy} onClick={() => void syncAll()}>
                 <I n="repeat" size={14} />{busy === "同步" ? "同步中…" : "全部同步"}
               </button>
             </div>
+            <p className="set-note">
+              第一次配飞书云盘建议走「引导配置」：按步骤取应用凭证、粘贴文件夹链接自动识别 token，
+              最后测一次连接再保存；熟手仍可用「新增通道」直接填配置项。
+            </p>
 
-            {channels.length === 0 && <Empty text="还没有同步通道。第一版先落地飞书，本地文件夹通道可无凭证验证多设备。" action="新增通道" onAction={() => { setIsNew(true); setEditing({ name: "", kind: boot?.channelKinds[0] ?? "localdir", enabled: true, options: {} }); }} />}
+            {channels.length === 0 && <Empty text="还没有同步通道。第一版先落地飞书，本地文件夹通道可无凭证验证多设备。" action="新增通道" onAction={() => { setGuiding(false); setIsNew(true); setEditing({ name: "", kind: boot?.channelKinds[0] ?? "localdir", enabled: true, options: {} }); }} />}
             {channels.map((c) => (
               <div key={c.name} className="channel-card">
                 <div className="field-row" style={{ justifyContent: "space-between" }}>
@@ -311,6 +324,20 @@ export function SettingsPage() {
               setProbeMsg(probeFirst ? `连接失败：${msg}` : msg);
               if (!probeFirst) toastErr(e);
             }
+          }}
+        />
+      )}
+
+      {guiding && (
+        <FeishuDriveGuide
+          existing={existingFeishu}
+          onClose={() => setGuiding(false)}
+          onProbe={async (cfg) => { await api.ProbeSyncChannel(cfg); }}
+          onSave={async (cfg) => {
+            await api.SaveSyncChannel(cfg);
+            toast(`已保存通道「${cfg.name}」`);
+            reload();
+            setGuiding(false);
           }}
         />
       )}
@@ -417,23 +444,3 @@ function EnvRow({ lab, mono, copy, title, children }: {
   );
 }
 
-/** WebView2 里 http://wails.localhost 不是安全上下文，navigator.clipboard 常常直接 reject，
- *  所以留一条 execCommand 的退路，而不是让用户点了没反应。 */
-async function copyToClipboard(text: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-    toast("已复制到剪贴板");
-    return;
-  } catch {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.style.position = "fixed";
-    ta.style.opacity = "0";
-    document.body.appendChild(ta);
-    ta.select();
-    let ok = false;
-    try { ok = document.execCommand("copy"); } catch { ok = false; }
-    document.body.removeChild(ta);
-    toast(ok ? "已复制到剪贴板" : "复制失败，请手动选中");
-  }
-}

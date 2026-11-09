@@ -3,6 +3,7 @@ package feishu
 import (
 	"context"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	coresync "planfordo/internal/core/sync"
@@ -65,6 +66,25 @@ func TestDriveBlobRoundTripIsolatedFromSnapshot(t *testing.T) {
 	}
 	if snap, err := d.Load(ctx); err != nil || snap.Revision != 1 {
 		t.Fatalf("覆盖写归档后快照内容丢了: %+v %v", snap, err)
+	}
+}
+
+// upload_all 的 size 是必填字段：少了它服务端回 1061002 params error，
+// 而且不告诉你是哪个参数（真实环境踩过，2026-11-09）。这条是回归护栏。
+func TestDriveUploadAllIncludesSize(t *testing.T) {
+	useFastBackoff(t)
+	fake := newFakeDrive()
+	srv := httptest.NewServer(fake)
+	defer srv.Close()
+	ch := buildChannel(t, "feishuDrive", driveOpts(srv.URL))
+	if err := ch.Probe(context.Background()); err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	fake.mu.Lock()
+	got := fake.lastUploadSize
+	fake.mu.Unlock()
+	if want := strconv.Itoa(len("planfordo-probe")); got != want {
+		t.Fatalf("upload_all 必须带与内容等长的 size，得 %q，想要 %q", got, want)
 	}
 }
 

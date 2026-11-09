@@ -125,8 +125,15 @@ func TestHabitStatPerfectDay(t *testing.T) {
 	}
 }
 
+// fixedStatClock 把「今天」钉在 2026-11-15（周日）本地中午。
+// 下面两个用例断言的是「本周已过完：周一打了卡、周三周五算 missed」，
+// 跟着真实日期跑会在周一/周二变成 future —— CI 会随星期几翻转。
+func fixedStatClock() func() time.Time {
+	return func() time.Time { return time.Date(2026, 11, 15, 12, 0, 0, 0, time.Local) }
+}
+
 func TestHabitStatWeeklyGridHasRestCells(t *testing.T) {
-	a, ctx := newApp(t)
+	a, ctx := newApp(t, WithClock(fixedStatClock()))
 	today := a.Today()
 	mon := repeat.AddDays(today, -(weekdayMonLocal(today) - 1))
 	sun := repeat.AddDays(mon, 6)
@@ -145,7 +152,7 @@ func TestHabitStatWeeklyGridHasRestCells(t *testing.T) {
 	if len(st.Habits[0].Days) != 7 {
 		t.Fatalf("周统计必须给满 7 格，实得 %d", len(st.Habits[0].Days))
 	}
-	// 今天落在周中：一三五里只剩周一打了卡、周三周五是 missed，其余全是 rest
+	// 固定今天是周日：一三五里只剩周一打了卡，周三周五已过去算 missed，其余全是 rest
 	rest, done, missed := 0, 0, 0
 	for _, c := range st.Habits[0].Days {
 		switch c.State {
@@ -249,9 +256,9 @@ func weekdayMonLocal(day string) int {
 // TestHabitStatOffScheduleClock 锁住一条容易画错的情形：
 // 回溯额度允许往「没排期」的日子打卡，那天必须显示成打了卡，不能因为不在排期表里就画成休息。
 func TestHabitStatOffScheduleClock(t *testing.T) {
-	a, ctx := newApp(t)
+	a, ctx := newApp(t, WithClock(fixedStatClock()))
 	today := a.Today()
-	// 只在周一三五排期，今天若是这几天之一就往后挪一天
+	// 只在周一三五排期；固定今天为周日，周二就在 30 天回溯额度内
 	mon := repeat.AddDays(today, -(weekdayMonLocal(today) - 1))
 	tue := repeat.AddDays(mon, 1)
 	h, err := a.SaveHabit(ctx, HabitInput{Name: "健身", Freq: model.Frequency{Kind: model.FreqFixedWeekdays, Weekdays: []int{1, 3, 5}}, StartDay: repeat.AddDays(mon, -10), BackfillDays: 30})

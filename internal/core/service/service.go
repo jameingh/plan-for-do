@@ -31,6 +31,9 @@ type App struct {
 	db       *store.DB
 	loc      *time.Location
 	calendar repeat.HolidaySource
+	// clock 是「现在这个时刻」的唯一来源，默认 time.Now。
+	// 测试用 WithClock 钉住它，免得「今天落在周中」这类断言随真实日期翻转。
+	clock func() time.Time
 }
 
 // Option 定制内核；壳层负责把自己平台解析出的时区与节假日数据源注入进来。
@@ -45,6 +48,16 @@ func WithLocation(loc *time.Location) Option {
 	}
 }
 
+// WithClock 注入墙钟（返回本地或 UTC 时刻均可，Today 会按 loc 换算）。
+// 只给测试固定「今天」用；不注入时行为与之前完全一致。
+func WithClock(clock func() time.Time) Option {
+	return func(a *App) {
+		if clock != nil {
+			a.clock = clock
+		}
+	}
+}
+
 // WithCalendar 注入法定节假日与调休数据源。不注入时相关规则退化为普通周一至周五。
 func WithCalendar(h repeat.HolidaySource) Option {
 	return func(a *App) {
@@ -54,7 +67,7 @@ func WithCalendar(h repeat.HolidaySource) Option {
 
 // New 以内核存储为底座构造服务。
 func New(db *store.DB, opts ...Option) *App {
-	a := &App{db: db, loc: time.Local}
+	a := &App{db: db, loc: time.Local, clock: time.Now}
 	for _, o := range opts {
 		o(a)
 	}
@@ -72,7 +85,7 @@ func (a *App) DeviceID() string { return a.db.DeviceID() }
 
 // Today 返回服务所在时区的本地日历日。所有「今天」的判断都必须走它，
 // 不让前端传一个可能来自另一时区的日期。
-func (a *App) Today() model.Day { return time.Now().In(a.loc).Format("2006-01-02") }
+func (a *App) Today() model.Day { return a.clock().In(a.loc).Format("2006-01-02") }
 
 // now 发一个单调时间戳。
 func (a *App) now(ctx context.Context) (model.ClockTime, error) {

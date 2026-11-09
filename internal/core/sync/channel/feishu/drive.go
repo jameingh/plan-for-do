@@ -288,11 +288,14 @@ func (d *Drive) SaveConditional(ctx context.Context, s *sync.Snapshot, expectRev
 func (d *Drive) uploadAll(ctx context.Context, fileName string, content []byte) (string, error) {
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
-	// 字段名 file_name / parent_type / parent_node / file 按官方文档；
+	// 字段名 file_name / parent_type / parent_node / size / file 按官方文档；
 	// 上传快照 JSON 走 explorer（云空间）语义而不是 docs，docs 会做格式转换。
+	// size 是必填项：少了它服务端一律回 1061002 params error，且不告诉你是哪个参数
+	// （真实环境踩过，2026-11-09）。值必须与 file 的实际字节数一致，且不能为 0。
 	mw.WriteField("file_name", fileName)
 	mw.WriteField("parent_type", "explorer")
 	mw.WriteField("parent_node", d.folderToken)
+	mw.WriteField("size", strconv.Itoa(len(content)))
 	part, err := mw.CreateFormFile("file", fileName)
 	if err != nil {
 		return "", fmt.Errorf("feishu: 构造上传体: %w", err)

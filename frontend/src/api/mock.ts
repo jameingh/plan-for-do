@@ -980,6 +980,14 @@ export function createMockKernel(): Kernel {
 
   // ——— 实现 ———
 
+  // 与 Go 里 sync.Register 的名字一致；握手回显、保存校验共用一份，
+  // 免得「设置页看得到的类型」和「实际能保存的类型」对不上。
+  const channelKinds = ["localdir", "webdav", "feishuBase", "feishuDrive"];
+  const feishuRequired: Record<string, string[]> = {
+    feishuDrive: ["appId", "appSecret", "folderToken"],
+    feishuBase: ["appId", "appSecret", "appToken"],
+  };
+
   const impl: Omit<Kernel, "impl"> = {
     ...createMemoAPI(db, { call, now, newID, emit, err }),
     ...createFocusAPI(db, { call, now, newID, emit, err, buildListView, scheduledDays }),
@@ -988,7 +996,7 @@ export function createMockKernel(): Kernel {
         dataDir: "（mock：内存数据，刷新即重置）",
         deviceId: "mock-device-0001",
         today: todayLocal(),
-        channelKinds: ["localdir", "webdav", "feishuBase", "feishuDrive"], // 与 Go 里 sync.Register 的名字一致
+        channelKinds: [...channelKinds],
         settings: db.settings,
       })),
     GetSettings: () => call(() => ({ ...db.settings })),
@@ -1819,7 +1827,7 @@ export function createMockKernel(): Kernel {
     SaveSyncChannel: (cfg: SyncConfig) =>
       call(() => {
         if (!cfg.name) throw err("sync: 通道名不能为空");
-        if (!["localdir", "webdav"].includes(cfg.kind)) throw err(`sync: 未注册的通道类型 "${cfg.kind}"（已注册 localdir/webdav）`);
+        if (!channelKinds.includes(cfg.kind)) throw err(`sync: 未注册的通道类型 "${cfg.kind}"（已注册 ${channelKinds.join("/")}）`);
         const idx = db.channels.findIndex((c) => c.name === cfg.name);
         if (idx >= 0) db.channels[idx] = cfg;
         else db.channels.push(cfg);
@@ -1836,6 +1844,9 @@ export function createMockKernel(): Kernel {
       call(() => {
         if (cfg.kind === "localdir" && !(cfg.options?.path ?? "").trim()) throw err("localdir: 缺少 path 配置项（本地同步目录）");
         if (cfg.kind === "webdav" && !(cfg.options?.url ?? "").trim()) throw err("webdav: 缺少 url 配置项");
+        for (const k of feishuRequired[cfg.kind] ?? []) {
+          if (!(cfg.options?.[k] ?? "").trim()) throw err(`${cfg.kind}: 缺少 ${k} 配置项`);
+        }
         return undefined;
       }),
     SyncNow: (name: string) =>
@@ -1890,7 +1901,8 @@ export function createMockKernel(): Kernel {
     try {
       if (c.kind === "localdir") return !!(c.options?.path ?? "").trim();
       if (c.kind === "webdav") return !!(c.options?.url ?? "").trim();
-      return false;
+      const required = feishuRequired[c.kind];
+      return !!required?.length && required.every((k) => !!(c.options?.[k] ?? "").trim());
     } catch {
       return false;
     }

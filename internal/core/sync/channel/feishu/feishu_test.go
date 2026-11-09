@@ -245,6 +245,8 @@ type fakeDrive struct {
 	seq        int
 	tokenCalls int
 	faults     map[string]int // "upload"|"delete"|"rename" → 剩余注入次数
+	// lastUploadSize 记下 upload_all 收到的 size 字段，给「必填 size」做回归护栏。
+	lastUploadSize string
 }
 
 func newFakeDrive() *fakeDrive {
@@ -304,6 +306,7 @@ func (f *fakeDrive) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, `{"code":2,"msg":"坏的多部分请求: %s"}`, err)
 			return
 		}
+		f.lastUploadSize = r.FormValue("size")
 		name := r.FormValue("file_name")
 		fh, _, err := r.FormFile("file")
 		if err != nil {

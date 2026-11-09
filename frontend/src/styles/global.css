@@ -746,6 +746,25 @@ svg.icon { flex: none; display: block; }
 .cat-row[draggable="true"] > .input { cursor: grab; }
 .cat-row .field-error { flex-basis: 100%; margin-top: 0; }
 .kv-row { display: grid; grid-template-columns: 1fr 2fr auto; gap: var(--s2); margin-bottom: var(--s2); align-items: center; }
+
+/* —— feishuDrive 引导配置：分步条复用 hg-*，这里只补向导自己的排版 —— */
+.fdg { display: flex; flex-direction: column; gap: 10px; min-height: 320px; }
+.fdg-body { display: flex; flex-direction: column; gap: 9px; }
+.fdg-list { margin: 0; padding-left: 18px; font-size: 12px; line-height: 19px; color: var(--text-2); }
+.fdg-list b { color: var(--text); font-weight: 500; }
+.fdg-link-row { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; font-size: 12px; color: var(--text-2); }
+.fdg-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px;
+  background: var(--surface-2); border-radius: 6px; padding: 2px 6px; word-break: break-all; }
+.fdg-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-2); }
+.fdg-field > span { display: flex; align-items: baseline; gap: 6px; }
+.fdg-field i { font-style: normal; font-size: 11px; color: var(--text-3); }
+.fdg-ok { font-size: 12px; line-height: 17px; color: var(--brand); }
+.fdg-summary { border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); padding: 8px 12px;
+  display: flex; flex-direction: column; gap: 4px; }
+.fdg-summary > div { display: flex; gap: 10px; font-size: 12px; }
+.fdg-summary span { width: 52px; flex: none; color: var(--text-3); }
+.fdg-summary code { font-size: 11.5px; color: var(--text-2); word-break: break-all; }
+.fdg-summary b { font-weight: 500; color: var(--text); }
 .page-head { height: var(--h-bar); display: flex; align-items: center; gap: var(--s2); padding: 0 var(--content-pad-x); border-bottom: 1px solid var(--line); flex: none; }
 .page-head .title { font-size: 16px; font-weight: 500; }
 .page-body { padding: var(--s4) var(--content-pad-x); display: flex; flex-direction: column; gap: var(--s5); flex: 1; min-height: 0; overflow-y: auto; }

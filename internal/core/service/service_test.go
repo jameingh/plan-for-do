@@ -14,14 +14,14 @@ import (
 	"planfordo/internal/core/tclock"
 )
 
-func newApp(t *testing.T) (*App, context.Context) {
+func newApp(t *testing.T, opts ...Option) (*App, context.Context) {
 	t.Helper()
 	db, err := store.Open(context.Background(), t.TempDir())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	a := New(db, WithLocation(time.Local))
+	a := New(db, append([]Option{WithLocation(time.Local)}, opts...)...)
 	if err := a.Seed(context.Background()); err != nil {
 		t.Fatalf("Seed: %v", err)
 	}
