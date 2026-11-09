@@ -254,6 +254,11 @@ export function wireEvents(): () => void {
     const arr = Array.isArray(data) ? (data as ReminderFire[]) : [];
     if (arr.length) pushReminders(arr);
   });
+  // 后台/自动同步（窗口聚焦时触发，见 onFocus）不弹提示，只记日志：
+  // 否则每次切回窗口都会冒一条绿色「同步完成」，属于无意义的打扰。
+  // 手动点「立即同步 / 全部同步」时此标志保持 false，照常弹 toast。
+  let bgSync = false;
+
   const off3 = api.On("sync:done", (data) => {
     type SyncDone = { channel: string; applied: number; pushed: number; conflicts: number; skipped?: string };
     const arr = Array.isArray(data) ? (data as SyncDone[]) : [];
@@ -262,9 +267,21 @@ export function wireEvents(): () => void {
     // 「本地无待推送内容」是唯一正常的跳过，其余一律按失败报出来：否则用户会
     // 同时看到红色错误和绿色「同步完成」（2026-11-09 真实反馈）。
     const isSkip = (s?: string) => !s || s === "本地无待推送内容";
+    const summarize = (r: SyncDone) =>
+      `${r.channel}(应用${r.applied}/上推${r.pushed}/冲突${r.conflicts})` +
+      (r.skipped ? (isSkip(r.skipped) ? ` 跳过:${r.skipped}` : ` 失败:${r.skipped}`) : "");
     const ok = arr.filter((r) => isSkip(r.skipped));
     const failed = arr.filter((r) => !isSkip(r.skipped));
-    if (ok.length) toast(`同步完成：${ok.map((r) => `${r.channel}(应用${r.applied}/上推${r.pushed}/冲突${r.conflicts})`).join("，")}`);
+    if (bgSync) {
+      // 自动同步：不弹提示，仅记控制台日志；失败部分也要记出来，方便排查。
+      bgSync = false;
+      const parts: string[] = [];
+      if (ok.length) parts.push("成功 " + ok.map(summarize).join("，"));
+      if (failed.length) parts.push("失败 " + failed.map(summarize).join("，"));
+      console.info(`[sync:background] ${parts.join("；") || "无变化"}`);
+      return;
+    }
+    if (ok.length) toast(`同步完成：${ok.map(summarize).join("，")}`);
     for (const r of failed) toastErr(new Error(`通道「${r.channel}」同步失败：${r.skipped}`));
   });
 
@@ -277,7 +294,12 @@ export function wireEvents(): () => void {
     const now = Date.now();
     if (now - lastPull < 30_000) { bumpRevision(); return; }
     lastPull = now;
-    api.SyncNow("").then(() => bumpRevision()).catch(() => bumpRevision());
+    bgSync = true;
+    api.SyncNow("").then(() => bumpRevision()).catch((e) => {
+      bgSync = false;
+      console.warn("[sync:background] 同步失败：", e);
+      bumpRevision();
+    });
   };
   window.addEventListener("focus", onFocus);
   document.addEventListener("visibilitychange", onFocus);
