@@ -253,22 +253,61 @@ console.log("\n=== 备忘录：文件夹 ===");
 await click(".icon-folder-more");
 await click(".menu-box .item-title", "文件夹管理");
 await sleep(400);
-check("文件夹管理抽屉打开", (await num(".folder-manage")) === 1 && (await txt(".fm-head")) === "文件夹管理", await txt(".fm-head"));
-check("副标题「（可拖动排序）」", (await txt(".fm-sub")) === "（可拖动排序）", await txt(".fm-sub"));
+// 参考站的 FolderManage 是「居中卡片 + 名字盒子 + 红垃圾桶 + 整行＋」，
+// 新建/改名/删除都走嵌套子弹窗（MemoSetFolder）——2026-11-10 按参考站截图改的。
+check("文件夹管理卡片打开", (await num(".folder-manage")) === 1 && (await txt(".fm-head .text-title")) === "文件夹管理", await txt(".fm-head"));
+check("副标题「（可拖动排序）」", (await txt(".fm-head .title-tip")) === "（可拖动排序）", await txt(".fm-head .title-tip"));
+check("底部整行「＋」", (await num(".folder-add")) === 1);
+check("卡片是居中的（不是右侧抽屉）",
+  (await evalJs(`(()=>{const c=document.querySelector(".folder-manage");const b=c.getBoundingClientRect();
+    const rail=document.querySelector(".rail").getBoundingClientRect();
+    return Math.abs((b.left+b.right)/2 - (rail.right+innerWidth)/2) < 24})()`)) === true,
+  await evalJs(`(()=>{const b=document.querySelector(".folder-manage").getBoundingClientRect();return JSON.stringify({l:Math.round(b.left),r:Math.round(b.right),w:Math.round(b.width)})})()`));
+
+// 点「＋」→ 子弹窗
+await click(".folder-add");
+await sleep(400);
+check("新建子弹窗标题「新建文件夹」", (await txt(".fm-sub-body .text-title")) === "新建文件夹", await txt(".fm-sub-body"));
 check("输入框 placeholder 与 6 字上限",
   (await evalJs(`document.querySelector(".fm-input").placeholder`)) === "请输入文件夹名称" && (await evalJs(`document.querySelector(".fm-input").maxLength`)) === 6);
+check("子弹窗按钮是「取消 / 确定」",
+  (await evalJs(`[...document.querySelectorAll(".fm-btns .cc-btn")].map(e=>e.innerText.trim()).join("/")`)) === "取消/确定",
+  await evalJs(`[...document.querySelectorAll(".fm-btns .cc-btn")].map(e=>e.innerText.trim()).join("/")`));
 await typeInto(".fm-input", "工作");
 await key("Enter");
-await sleep(500);
-check("回车建好文件夹", (await num(".folder-item")) === 1 && (await txt(".folder-name")) === "工作", await txt(".folder-items"));
+await sleep(600);
+check("回车建好文件夹", (await num(".folder-item")) === 1 && (await txt(".folder-intro")) === "工作", await txt(".folder-items"));
+check("每行是「名字盒子 + 红色删除图标」",
+  (await num(".folder-item .folder-intro")) === 1 && (await num(".folder-item .icon-delete")) === 1
+  && (await evalJs(`getComputedStyle(document.querySelector(".folder-item .icon-delete")).color`)) === "rgb(254, 74, 74)",
+  await evalJs(`JSON.stringify({盒子:document.querySelectorAll(".folder-item .folder-intro").length,删除:document.querySelectorAll(".folder-item .icon-delete").length})`));
+
+// 名字盒子点开是「重命名文件夹」子弹窗
+await click(".folder-intro");
+await sleep(400);
+check("点名字盒子 → 重命名子弹窗", (await txt(".fm-sub-body .text-title")) === "重命名文件夹", await txt(".fm-sub-body"));
+await click(".fm-btns .cc-btn", "取消");
+await sleep(300);
+// 删除图标 → 删除子弹窗（带提示原文）
+await click(".folder-item .icon-delete");
+await sleep(400);
+check("点删除图标 → 删除子弹窗",
+  (await txt(".fm-sub-body .text-title")) === "删除文件夹" && (await txt(".fm-tip")) === "删除后，该文件夹下的备忘录可在回收站查看",
+  await txt(".fm-sub-body"));
+await click(".fm-btns .cc-btn", "取消");
+await sleep(300);
+
+// 超长名字按 6 字截断
+await click(".folder-add");
+await sleep(400);
 await typeInto(".fm-input", "一二三四五六七八");
 await key("Enter");
-await sleep(500);
-check("超长名字按 6 字截断", (await evalJs(`[...document.querySelectorAll(".folder-name")].map(e=>e.innerText).join(",")`)).includes("一二三四五六"),
-  await evalJs(`[...document.querySelectorAll(".folder-name")].map(e=>e.innerText).join(",")`));
+await sleep(600);
+check("超长名字按 6 字截断", (await evalJs(`[...document.querySelectorAll(".folder-intro")].map(e=>e.innerText).join(",")`)).includes("一二三四五六"),
+  await evalJs(`[...document.querySelectorAll(".folder-intro")].map(e=>e.innerText).join(",")`));
 await click(".fm-head .icon-close");
 await sleep(400);
-check("关掉抽屉后回到列表", (await num(".folder-manage")) === 0);
+check("关掉卡片后回到列表", (await num(".folder-manage")) === 0);
 await click(".icon-folder-more");
 await click(".menu-box .item", "按创建时间排序");
 await sleep(400);
@@ -291,19 +330,20 @@ check("头部显示当前文件夹名", (await txt(".text-folder-name")) === "�
 await click(".icon-folder-more");
 await click(".menu-box .item-title", "文件夹管理");
 await sleep(400);
-await click(".folder-ops button", "", 1);    // 第一个文件夹的删除
+// 参考站：删除走子弹窗（标题「删除文件夹」+ 提示原文 + 取消/确定），不是外层确认框
+await click(".folder-item .icon-delete", "", 0);
 await sleep(400);
-check("删除文件夹有确认与原文提示",
-  (await txt(".confirm-head")) === "确定要删除该文件夹？" && (await txt(".confirm-intro")) === "删除后，该文件夹下的备忘录可在回收站查看",
-  await txt(".confirm-box"));
-await click(".confirm-foot .cc-btn", "确定");
-await sleep(600);
+check("删除文件夹子弹窗有原文提示",
+  (await txt(".fm-sub-body .text-title")) === "删除文件夹" && (await txt(".fm-tip")) === "删除后，该文件夹下的备忘录可在回收站查看",
+  await txt(".fm-sub-body"));
+await click(".fm-btns .cc-btn", "确定");
+await sleep(700);
 snap = dbRows();
 check("文件夹删了，里面的备忘录进回收站而不是消失",
   snap.rows.filter((r) => r.trashedAt).length === 1 && snap.rows.filter((r) => !r.trashedAt).length === 2,
   JSON.stringify(snap.rows.map((r) => [r.title, !!r.trashedAt])));
 check("回到「全部」", (await txt(".text-folder-name")) === "全部", await txt(".text-folder-name"));
-check("确认框点确定后自己收掉（不留遮罩）", (await num(".memo-mask")) === 0);
+check("子弹窗点确定后自己收掉（不留遮罩）", (await num(".fm-sub-mask")) === 0);
 await click(".folder-manage .icon-close");
 await sleep(400);
 check("文件夹抽屉可关", (await num(".folder-manage")) === 0);

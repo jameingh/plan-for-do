@@ -131,11 +131,13 @@ export function MemosPage() {
   const editor = useRef<MemoEditorHandle | null>(null);
   const filePick = useRef<Partial<Record<MemoFileKind, HTMLInputElement | null>>>({});
   const moreBtn = useRef<HTMLDivElement | null>(null);
+  const folderNameRef = useRef<HTMLDivElement | null>(null);
   const state = useRef({ draft, open });
   state.current = { draft, open };
 
   // 每个浮层一套贴边保护。只有真正渲染出来的那套 ref 非空，其余直接跳过。
   const gSort = useEdgeGuard(at, "end");   // 排序菜单：右对齐「…」，否则会伸进编辑区
+  const gFolder = useEdgeGuard(at);        // 「全部」下拉：左缘对齐标题
   const gFont = useEdgeGuard(at);           // 字体 / 字号
   const gColor = useEdgeGuard(at);          // 文字色 / 背景色
   const gBack = useEdgeGuard(at);           // 背景图
@@ -317,15 +319,18 @@ export function MemosPage() {
   const insertCheckBox = () => toolbar("insertHTML", "&zwnj;<input type=\"checkbox\" name=\"vehicle\" value=\"checkBox\">&nbsp;");
 
   const pickFolder = () => {
+    // 落位跟着「全部」这一行的真实位置算（参考站的 FolderSelect 也是 mounted 时按锚点算 margin），
+    // 不再写死 left:1.1rem —— 那是相对遮罩左边算的，跟标题对不齐。
+    const r = folderNameRef.current?.getBoundingClientRect();
+    if (r) setAt({ x: r.left, y: r.bottom + 2 });
     setPopup(popup === "folder" ? "" : "folder");
-    setAt({ x: 0, y: 0 });
   };
 
   return (
     <div className="memos-page">
       <section className="memo-list" aria-label="备忘录列表">
         <div className="memo-folder">
-          <div className="text-folder-name my-cursor" onClick={pickFolder}>{folderName}</div>
+          <div className="text-folder-name my-cursor" ref={folderNameRef} onClick={pickFolder}>{folderName}</div>
           <div className={"icon-folder-select my-cursor" + (popup === "folder" ? " is-on" : "")} role="button"
             aria-label="切换文件夹" onClick={pickFolder}><I n="chevronDown" size={11} /></div>
           <div className="icon-folder-more my-cursor" role="button" aria-label="排序与文件夹管理" ref={moreBtn}
@@ -455,7 +460,7 @@ export function MemosPage() {
       {/* —— 以下都是参考站那套 curtain 浮层，不是 el-dialog —— */}
       {popup === "folder" && (
         <Curtain onClose={() => setPopup("")}>
-          <div className="folder-box" onMouseDown={(e) => e.stopPropagation()}>
+          <div className="folder-box" ref={gFolder.ref} style={gFolder.style} onMouseDown={(e) => e.stopPropagation()}>
             <FolderList folders={folders} selected={folderId} onPick={(id) => { setFolderId(id); setPopup(""); }} />
           </div>
         </Curtain>
@@ -552,8 +557,10 @@ export function MemosPage() {
         </Curtain>
       )}
       {popup === "manager" && (
-        <FolderManager folders={folders} onClose={() => setPopup("")}
-          onConfirm={(box) => setConfirmBox({ ...box, onOk: () => { setConfirmBox(null); box.onOk(); } })} />
+        // 参考站是 curtain-grey（点外面关）+ 居中卡片；我们原来没有遮罩，直接一个右侧抽屉。
+        <Curtain onClose={() => setPopup("")}>
+          <FolderManager folders={folders} onClose={() => setPopup("")} />
+        </Curtain>
       )}
       {popup === "bin" && (
         <RecycleBin picked={picked} setPicked={setPicked} onClose={() => setPopup("")}
@@ -694,17 +701,17 @@ function FolderList({ folders, selected, onPick }: { folders: MemoFolder[]; sele
   );
 }
 
-/** 文件夹管理抽屉：新建（回车）、改名、删除、拖拽排序。删除会把里面的备忘录送进回收站。 */
-function FolderManager({ folders, onClose, onConfirm }: {
-  folders: MemoFolder[];
-  onClose: () => void;
-  onConfirm: (box: { title: string; intro: string; ok: string; onOk: () => void }) => void;
-}) {
+/**
+ * 文件夹管理（参考站 FolderManage）：**居中卡片**，不是右侧抽屉。
+ * 结构照参考站：标题「文件夹管理」+ 副题「（可拖动排序）」+ 关闭；
+ * 每一行 = 一个带绿边框的「名字盒子」（点击改名）+ 右侧红色删除图标（点击删）；
+ * 底部一整行「＋」（点击新建）。
+ * 新建/改名/删除都走嵌套子弹窗（参考站 MemoSetFolder），不在列表里塞输入框。
+ */
+function FolderManager({ folders, onClose }: { folders: MemoFolder[]; onClose: () => void }) {
   const [rows, setRows] = useState<MemoFolder[]>(folders);
-  const [editID, setEditID] = useState("");
-  const [name, setName] = useState("");
+  const [sub, setSub] = useState<{ mode: 0 | 1 | 2; item: MemoFolder | null } | null>(null);
   const [busy, setBusy] = useState(false);
-  const input = useAutoFocus<HTMLInputElement>();
   const dragID = useRef("");
   useEffect(() => setRows(folders), [folders]);
   useEscClose(onClose);
@@ -724,68 +731,102 @@ function FolderManager({ folders, onClose, onConfirm }: {
     onClose();
   };
 
-  const submit = () => {
-    const v = name.trim();
-    if (!v) return;
-    if (editID) run(() => api.SaveMemoFolder({ id: editID, name: v }));
-    else run(() => api.SaveMemoFolder({ name: v, sort: rows.length }));
-    setName("");
-    setEditID("");
+  const onOk = (name: string) => {
+    const mode = sub?.mode ?? 0;
+    const item = sub?.item ?? null;
+    setSub(null);
+    if (mode === 0) run(() => api.SaveMemoFolder({ name, sort: rows.length }));
+    else if (mode === 1 && item) run(() => api.SaveMemoFolder({ id: item.id, name }));
+    else if (mode === 2 && item) run(() => api.DeleteMemoFolder(item.id));
   };
 
-  // 删除文件夹要确认（参考站的提示原文），确认框由上层渲染、抽屉保持在场
-  const askDelete = (f: MemoFolder) => onConfirm({
-    title: "确定要删除该文件夹？",
-    intro: "删除后，该文件夹下的备忘录可在回收站查看",
-    ok: "确定",
-    onOk: () => { setBusy(false); run(() => api.DeleteMemoFolder(f.id)); },
-  });
-
   return (
-    <div className="folder-manage">
-      <div className="fm-head">
-        <span className="text-title">文件夹管理</span>
-        <button className="icon-close" aria-label="关闭" onClick={close}><I n="close" size={13} /></button>
+    <>
+      <div className="folder-manage" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="fm-head">
+          <span className="text-title">文件夹管理</span>
+          <span className="title-tip">（可拖动排序）</span>
+          <button className="icon-close" aria-label="关闭" onClick={close}><I n="close" size={13} /></button>
+        </div>
+        <ul className="folder-items">
+          {rows.map((f) => (
+            <li key={f.id} className={"folder-item" + (dragID.current === f.id ? " is-moving" : "")} draggable
+              onDragStart={() => { dragID.current = f.id; }}
+              onDragEnter={(e) => {
+                e.preventDefault();
+                if (!dragID.current || dragID.current === f.id) return;
+                setRows((rs) => {
+                  const from = rs.findIndex((x) => x.id === dragID.current);
+                  const to = rs.findIndex((x) => x.id === f.id);
+                  if (from < 0 || to < 0) return rs;
+                  const next = rs.slice();
+                  const [moved] = next.splice(from, 1);
+                  next.splice(to, 0, moved);
+                  return next;
+                });
+              }}
+              onDragOver={(e) => e.preventDefault()}
+              onDragEnd={() => { dragID.current = ""; }}>
+              <div className="folder-intro my-cursor" onClick={() => setSub({ mode: 1, item: f })}>{f.name}</div>
+              <button className="icon-delete my-cursor" aria-label={`删除文件夹 ${f.name}`}
+                onClick={() => setSub({ mode: 2, item: f })}><I n="trash" size={12} /></button>
+            </li>
+          ))}
+        </ul>
+        <div className="folder-add my-cursor" role="button" aria-label="新建文件夹"
+          onClick={() => setSub({ mode: 0, item: null })}><I n="plus" size={13} /></div>
       </div>
-      <div className="fm-sub">（可拖动排序）</div>
-      <ul className="folder-items">
-        {rows.map((f) => (
-          <li key={f.id} className={"folder-item" + (dragID.current === f.id ? " is-moving" : "")} draggable
-            onDragStart={() => { dragID.current = f.id; }}
-            onDragEnter={(e) => {
-              e.preventDefault();
-              if (!dragID.current || dragID.current === f.id) return;
-              setRows((rs) => {
-                const from = rs.findIndex((x) => x.id === dragID.current);
-                const to = rs.findIndex((x) => x.id === f.id);
-                if (from < 0 || to < 0) return rs;
-                const next = rs.slice();
-                const [moved] = next.splice(from, 1);
-                next.splice(to, 0, moved);
-                return next;
-              });
-            }}
-            onDragOver={(e) => e.preventDefault()}
-            onDragEnd={() => { dragID.current = ""; }}>
-            <span className="folder-name">{f.name}</span>
-            <span className="folder-ops">
-              <button aria-label="编辑文件夹" onClick={() => { setEditID(f.id); setName(f.name); input.current?.focus(); }}><I n="pencil" size={12} /></button>
-              <button aria-label="删除文件夹" onClick={() => askDelete(f)}><I n="trash" size={12} /></button>
-            </span>
-          </li>
-        ))}
-      </ul>
-      <div className="fm-foot">
-        <input ref={input} className="fm-input" placeholder="请输入文件夹名称" aria-label="请输入文件夹名称"
-          maxLength={6} value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") submit(); else if (e.key === "Escape") { setEditID(""); setName(""); } }} />
+      {sub && <SetFolderDialog mode={sub.mode} item={sub.item} onCancel={() => setSub(null)} onOk={onOk} />}
+    </>
+  );
+}
+
+/**
+ * 文件夹管理的子弹窗（参考站 MemoSetFolder）：
+ * mode 0=新建 / 1=重命名 → 一个输入框（maxlength 6、占位「请输入文件夹名称」）；
+ * mode 2=删除 → 一句提示「删除后，该文件夹下的备忘录可在回收站查看」。
+ * 底下是「取消 / 确定」。
+ */
+function SetFolderDialog({ mode, item, onCancel, onOk }: {
+  mode: 0 | 1 | 2;
+  item: MemoFolder | null;
+  onCancel: () => void;
+  onOk: (name: string) => void;
+}) {
+  const [name, setName] = useState(item?.name || "");
+  const input = useAutoFocus<HTMLInputElement>();
+  useEscClose(onCancel);
+  const title = mode === 0 ? "新建文件夹" : mode === 1 ? "重命名文件夹" : "删除文件夹";
+  const submit = () => {
+    const v = name.trim();
+    if (mode === 2) { onOk(""); return; }
+    if (v) onOk(v);
+  };
+  return (
+    <div className="fm-sub-mask" onMouseDown={onCancel}>
+      <div className="fm-sub-body" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="fm-head">
+          <span className="text-title">{title}</span>
+          <button className="icon-close" aria-label="关闭" onClick={onCancel}><I n="close" size={13} /></button>
+        </div>
+        {mode < 2 ? (
+          <label className="fm-field">
+            <input ref={input} className="fm-input" maxLength={6} placeholder="请输入文件夹名称"
+              aria-label="请输入文件夹名称" value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") submit();
+                if (e.key === "Escape") onCancel();
+              }} />
+          </label>
+        ) : (
+          <p className="fm-tip">删除后，该文件夹下的备忘录可在回收站查看</p>
+        )}
         <div className="fm-btns">
-          <button className="cc-btn" onClick={() => { setEditID(""); setName(""); }}>取消</button>
-          <button className="cc-btn is-primary" onClick={submit}>{editID ? "确定" : "新建文件夹"}</button>
+          <button className="cc-btn" onClick={onCancel}>取消</button>
+          <button className="cc-btn is-primary" onClick={submit}>确定</button>
         </div>
       </div>
-
     </div>
   );
 }

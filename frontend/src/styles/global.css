@@ -1467,12 +1467,15 @@ iframe.edit-iframe { display: block; width: 100%; height: 100%; border: 0;
 .menu-box .item-title.my-cursor:hover { background: #f0f0f0; }
 /* 文件夹选择：changeFolder 在列表列内 (1.1rem, .6rem)；setFolder 贴右上角 (right .7rem, top .6rem)；
    moveInFolder 跟着鼠标走 —— 三种入口的落位是参考站 FolderSelect.mounted 里写死的 */
-.folder-box { position: absolute; left: calc(var(--m-rem) * 1.1); top: calc(var(--m-rem) * .6); }
+/* 文件夹选择浮层（参考站 FolderSelect）：落位由 JS 按「全部」标题的真实位置算好后内联覆盖，
+   这里只留首帧兜底。原来写死 left:1.1rem —— 那是相对遮罩左缘算的，跟标题对不齐。 */
+.folder-box { position: fixed; left: 0; top: 0; }
 .folder-box.is-setfolder { left: auto; right: calc(var(--m-rem) * .7); top: calc(var(--m-rem) * .6); }
 .folder-box.is-mouse { position: fixed; left: 0; top: 0; }
+/* 参考站 ul.items：width 2.4rem / max-height 2.8rem（原来我们 min-width 1.68rem，比参考站窄一截） */
 .folder-box ul.items { list-style: none; margin: 0; padding: calc(var(--m-rem) * .05) 0; background: var(--surface);
   border-radius: calc(var(--m-rem) * .1); box-shadow: 0 4px 18px rgba(0, 0, 0, .12);
-  min-width: calc(var(--m-rem) * 1.68); max-height: calc(var(--m-rem) * 3); overflow: auto; }
+  width: calc(var(--m-rem) * 2.4); max-height: calc(var(--m-rem) * 2.8); overflow: auto; }
 .folder-box .item { width: 100%; box-sizing: border-box; height: calc(var(--m-rem) * .4);
   padding: 0 calc(var(--m-rem) * .17); font-size: calc(var(--m-rem) * .15); color: var(--text);
   line-height: calc(var(--m-rem) * .4); position: relative; white-space: nowrap; }
@@ -1495,42 +1498,58 @@ iframe.edit-iframe { display: block; width: 100%; height: 100%; border: 0;
 .back-foot { display: flex; align-items: center; justify-content: center; gap: calc(var(--m-rem) * .12);
   margin-top: calc(var(--m-rem) * .1); font-size: calc(var(--m-rem) * .12); color: var(--text-3); }
 
-/* —— 文件夹管理抽屉 —— */
-.folder-manage { position: fixed; top: 0; right: 0; bottom: 0; width: min(calc(var(--m-rem) * 3.6), 32vw);
-  z-index: 120; background: var(--surface); box-shadow: -6px 0 22px rgba(0, 0, 0, .1);
-  padding: calc(var(--m-rem) * .26) calc(var(--m-rem) * .2); box-sizing: border-box;
-  display: flex; flex-direction: column; gap: calc(var(--m-rem) * .08); }
-.fm-head { display: flex; align-items: center; gap: calc(var(--m-rem) * .1); }
+/* —— 文件夹管理：参考站 FolderManage = curtain-grey + 居中卡片 container-body ——
+   原来我们是右侧 32vw 抽屉，跟参考站完全不是一回事（2026-11-10 用户按参考站截图要求改）。
+   参考站原值：width 5.5rem / 圆角 .2rem / padding .25rem .28rem / margin-top 13.89vh。 */
+.folder-manage { position: absolute; left: 50%; top: 13.89vh; transform: translateX(-50%);
+  width: calc(var(--m-rem) * 5.5); box-sizing: border-box; background: var(--surface);
+  border-radius: calc(var(--m-rem) * .2); padding: calc(var(--m-rem) * .25) calc(var(--m-rem) * .28);
+  box-shadow: 0 calc(var(--m-rem) * .04) calc(var(--m-rem) * .2) rgba(0, 0, 0, .14); z-index: 121; }
+.fm-head { display: flex; align-items: center; gap: calc(var(--m-rem) * .08); }
 .fm-head .text-title { font-size: calc(var(--m-rem) * .22); font-weight: 700; color: var(--text);
   line-height: calc(var(--m-rem) * .34); }
-.fm-head .icon-close { color: var(--text-3); border: 0; background: none; padding: 0;
+.fm-head .title-tip { font-size: calc(var(--m-rem) * .12); color: var(--text-3); }
+.fm-head .icon-close { margin-left: auto; color: var(--text-3); border: 0; background: none; padding: 0;
   width: calc(var(--m-rem) * .22); height: calc(var(--m-rem) * .22);
   display: inline-flex; align-items: center; justify-content: center; }
 .fm-head .icon-close:hover { color: var(--brand); }
-.fm-sub { font-size: calc(var(--m-rem) * .12); color: var(--text-3); }
-.folder-items { list-style: none; margin: calc(var(--m-rem) * .12) 0 0; padding: 0; overflow: auto; flex: 1; }
-.folder-item { display: flex; align-items: center; height: calc(var(--m-rem) * .44);
-  padding: 0 calc(var(--m-rem) * .1); border-radius: calc(var(--m-rem) * .06);
-  border: 1px solid var(--line); margin-bottom: calc(var(--m-rem) * .08); background: var(--surface);
-  cursor: grab; }
+.folder-items { list-style: none; margin: calc(var(--m-rem) * .12) 0 0; padding: 0;
+  overflow: auto; max-height: 46vh; }
+.folder-item { display: flex; align-items: center; gap: calc(var(--m-rem) * .08);
+  margin-bottom: calc(var(--m-rem) * .08); cursor: grab; }
 .folder-item.is-moving { opacity: .5; }
-.folder-item:hover { border-color: var(--brand); }
-.folder-name { flex: 1; min-width: 0; font-size: calc(var(--m-rem) * .14); color: var(--text);
-  overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.folder-ops { display: inline-flex; gap: calc(var(--m-rem) * .08); color: var(--text-3); }
-.folder-ops button { border: 0; background: none; padding: 2px; color: var(--text-3); display: inline-flex; }
-.folder-ops button:hover { color: var(--brand); }
-/* 底部一行放不下：输入框 flex:1 + 两个 .cc-btn（各 min-width 76px）合计 286px，
-   抽屉内容区只有 211px → 主按钮被挤出裁掉（2026-11-10 用户指出）。
-   改成上下两行：输入框独占一行，两个按钮下一行右对齐；输入框与按钮同高 32px。 */
-.fm-foot { display: flex; flex-direction: column; align-items: stretch; gap: calc(var(--m-rem) * .08);
-  margin-top: calc(var(--m-rem) * .1); }
+/* 参考站 div.folder-intro：width 100% / height .44rem / 圆角 .08rem / 绿边框 rgba(3,161,126,.2) */
+.folder-intro { flex: 1; min-width: 0; height: calc(var(--m-rem) * .44); box-sizing: border-box;
+  padding: 0 calc(var(--m-rem) * .1); display: flex; align-items: center;
+  font-size: calc(var(--m-rem) * .15); color: var(--text);
+  border-radius: calc(var(--m-rem) * .08); border: 1px solid rgba(3, 161, 126, .2); }
+.folder-intro:hover { border-color: var(--brand); }
+/* 参考站 div.icon-delete：.24rem 见方、float:right、rgb(254,74,74) */
+.icon-delete { flex: none; width: calc(var(--m-rem) * .24); height: calc(var(--m-rem) * .24);
+  border: 0; background: none; padding: 0; color: #fe4a4a;
+  display: inline-flex; align-items: center; justify-content: center; }
+.icon-delete:hover { color: #d63c3c; }
+/* 参考站 div.folder-add：整行「＋」，宽度比列表窄一截（对齐名字盒子的右缘） */
+.folder-add { width: calc(100% - var(--m-rem) * .32); height: calc(var(--m-rem) * .44);
+  box-sizing: border-box; margin-top: calc(var(--m-rem) * .1); color: var(--text-3);
+  border-radius: calc(var(--m-rem) * .08); border: 1px solid rgba(3, 161, 126, .2);
+  display: flex; align-items: center; justify-content: center; }
+.folder-add:hover { border-color: var(--brand); color: var(--brand); }
+
+/* 子弹窗（新建/重命名/删除文件夹，参考站 MemoSetFolder 也是 curtain + container-body） */
+.fm-sub-mask { position: fixed; inset: 0; z-index: 130; background: rgba(0, 0, 0, .15); }
+.fm-sub-body { position: absolute; left: 50%; top: 13.89vh; transform: translateX(-50%);
+  width: calc(var(--m-rem) * 5.5); box-sizing: border-box; background: var(--surface);
+  border-radius: calc(var(--m-rem) * .2); padding: calc(var(--m-rem) * .25) calc(var(--m-rem) * .28);
+  box-shadow: 0 calc(var(--m-rem) * .04) calc(var(--m-rem) * .2) rgba(0, 0, 0, .14); }
+.fm-field { display: block; margin-top: calc(var(--m-rem) * .14); }
+.fm-tip { margin: calc(var(--m-rem) * .14) 0 0; font-size: calc(var(--m-rem) * .13); color: var(--text-3); }
 .fm-input { width: 100%; height: 32px; box-sizing: border-box; border: 1px solid var(--line);
   border-radius: calc(var(--m-rem) * .06); padding: 0 calc(var(--m-rem) * .1);
   font-size: calc(var(--m-rem) * .14); color: var(--text); background: var(--surface); outline: none; }
 .fm-input:focus { border-color: var(--brand); }
-.fm-btns { display: flex; justify-content: flex-end; gap: calc(var(--m-rem) * .08); }
-.fm-note { margin: 0; font-size: calc(var(--m-rem) * .12); color: var(--text-3); }
+.fm-btns { display: flex; justify-content: flex-end; gap: calc(var(--m-rem) * .08);
+  margin-top: calc(var(--m-rem) * .16); }
 
 /* —— 回收站抽屉：参考站 width:35vw height:100vh —— */
 .body-recycle-bin { position: fixed; top: 0; right: 0; bottom: 0; width: 35vw; min-width: 300px; z-index: 120;
