@@ -44,6 +44,9 @@ export const CASES = [
       { css: ".menu-box .item", text: "移入文件夹" },
     ],
     popup: ".folder-box.is-mouse", anchor: ".body-memo-item", anchorMode: "point",
+    // 期望落点取**最初右键的那一行**，不是菜单项：参考站就是 moveInFolder 跟着鼠标走，
+    // 点菜单项时 at 没有更新，弹层仍落在右键处。
+    pointSel: ".body-memo-item",
   },
   {
     id: "memo-font", tab: "备忘录", label: "备忘录 · 字体下拉",
@@ -85,6 +88,17 @@ export const CASES = [
     id: "memo-recycle", tab: "备忘录", label: "备忘录 · 回收站抽屉",
     steps: [{ css: ".delete-note", text: "回收站" }],
     popup: ".body-recycle-bin", anchor: null, anchorMode: "none",
+  },
+  {
+    // 文件夹管理抽屉：整屏侧板，只查「内容不溢出」。
+    // 它的底部输入框+两个按钮曾经排在一行里（合计 286px > 内容区 211px），
+    // 主按钮被挤出裁掉——这条断言就是为它加的（2026-11-10 用户指出）。
+    id: "memo-folder-manager", tab: "备忘录", label: "备忘录 · 文件夹管理抽屉",
+    steps: [
+      { css: ".icon-folder-more", name: "排序与文件夹管理" },
+      { css: ".menu-box .item-title", text: "文件夹管理" },
+    ],
+    popup: ".folder-manage", anchor: null, anchorMode: "none", optional: true,
   },
 
   // ——— 清单 ———

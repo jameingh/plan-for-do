@@ -224,7 +224,7 @@ for (const c of CASES) {
   for (let i = 0; i < (c.steps || []).length; i++) {
     const s = c.steps[i];
     const last = i === c.steps.length - 1;
-    if (last && c.anchorMode === "point") point = await centerOf(s.css, s.text);
+    if (last && c.anchorMode === "point") point = await centerOf(c.pointSel || s.css, c.pointSel ? undefined : s.text);
     let hit = false;
     if (s.kind === "fill") {
       hit = await cdpFill(s.css, s.value);           // 填字没有语义通道，用 CDP

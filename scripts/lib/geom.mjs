@@ -31,6 +31,7 @@ export function probeExpr(popupSel, anchorSel) {
   const q = (s) => s ? document.querySelector(s) : null;
   const R = (el) => { if(!el) return null; const b = el.getBoundingClientRect();
     return {x:+b.x.toFixed(1), y:+b.y.toFixed(1), w:+b.width.toFixed(1), h:+b.height.toFixed(1),
+            left:+b.left.toFixed(1), top:+b.top.toFixed(1),
             right:+b.right.toFixed(1), bottom:+b.bottom.toFixed(1)}; };
   const popup = q(${JSON.stringify(popupSel)});
   const anchor = q(${JSON.stringify(anchorSel || "")});
@@ -67,7 +68,10 @@ export function probeExpr(popupSel, anchorSel) {
 
 /** 两个矩形之间的间隙；相交为 0。 */
 function rectGap(a, b) {
-  return Math.max(0, a.left - b.right, b.left - a.right, a.top - b.bottom, b.top - a.bottom);
+  // 注意：这里必须用 left/top。矩形对象里只有 x/y/w/h/right/bottom，
+  // 写成 a.left 会得到 undefined → NaN → 比较恒为 false → 判据整个失效（2026-11-10 踩过）。
+  const g = Math.max(0, a.left - b.right, b.left - a.right, a.top - b.bottom, b.top - a.bottom);
+  return Number.isFinite(g) ? g : Infinity;
 }
 
 /**

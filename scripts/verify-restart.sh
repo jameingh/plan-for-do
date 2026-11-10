@@ -52,6 +52,12 @@ for i in $(seq 1 25); do
   if curl -s "http://127.0.0.1:$PORT/json/list" 2>/dev/null | grep -q "wails.localhost"; then
     # CDP 口通了不等于界面已经跑完 boot：立刻开点会偶发「找不到元素」，多等两秒再交活
     sleep 2
+    # 再等数据库文件落盘——没落盘说明内核还没起完，自检脚本一上来读 DB 会读到空库，
+    # 条数类断言全成假的（2026-11-10 偶发过一次 76/11）。
+    for j in $(seq 1 15); do
+      [ -f "$DATA_DIR/planfordo.db" ] && break
+      sleep 1
+    done
     echo "verify 实例已就绪：端口 $PORT"
     exit 0
   fi

@@ -997,7 +997,10 @@ svg.icon { flex: none; display: block; }
 /* 遮罩是 .rail 的子节点，光抬 .rail 的 z-index 不够：同一个层叠上下文里
    定位元素（遮罩 120）永远压在静态的模块按钮上面，菜单开着时点模块只关菜单不切页。 */
 .rail.is-menu .rail-avatar, .rail.is-menu .rail-item { position: relative; z-index: 130; }
-.avatar-menu { position: absolute; left: 70px; top: 44px; width: 150px; list-style: none; margin: 0; padding: 5px 0;
+/* 落位由 AvatarMenu 按头像真实位置算好后内联覆盖；这里的值只是首帧兜底。
+   原先写死 left:70px —— 那是参考站的左栏宽度，我们左栏 56px，
+   结果菜单从头像右侧 26px 处冒出来，像是飘在半空（2026-11-10 用户指出）。 */
+.avatar-menu { position: absolute; left: 12px; top: 44px; width: 150px; list-style: none; margin: 0; padding: 5px 0;
   background: var(--surface); border-radius: 6px; box-shadow: var(--shadow-2); animation: modal-pop var(--t-dialog) ease; }
 .avatar-menu li > button { display: flex; align-items: center; gap: 6px; width: 100%; height: 34px; padding: 0 14px;
   border: 0; background: transparent; font-size: 13px; color: var(--text); text-align: left; }
@@ -1514,12 +1517,16 @@ iframe.edit-iframe { display: block; width: 100%; height: 100%; border: 0;
 .folder-ops { display: inline-flex; gap: calc(var(--m-rem) * .08); color: var(--text-3); }
 .folder-ops button { border: 0; background: none; padding: 2px; color: var(--text-3); display: inline-flex; }
 .folder-ops button:hover { color: var(--brand); }
-.fm-foot { display: flex; gap: calc(var(--m-rem) * .08); margin-top: calc(var(--m-rem) * .1); }
-.fm-input { flex: 1; height: calc(var(--m-rem) * .34); border: 1px solid var(--line);
+/* 底部一行放不下：输入框 flex:1 + 两个 .cc-btn（各 min-width 76px）合计 286px，
+   抽屉内容区只有 211px → 主按钮被挤出裁掉（2026-11-10 用户指出）。
+   改成上下两行：输入框独占一行，两个按钮下一行右对齐；输入框与按钮同高 32px。 */
+.fm-foot { display: flex; flex-direction: column; align-items: stretch; gap: calc(var(--m-rem) * .08);
+  margin-top: calc(var(--m-rem) * .1); }
+.fm-input { width: 100%; height: 32px; box-sizing: border-box; border: 1px solid var(--line);
   border-radius: calc(var(--m-rem) * .06); padding: 0 calc(var(--m-rem) * .1);
   font-size: calc(var(--m-rem) * .14); color: var(--text); background: var(--surface); outline: none; }
 .fm-input:focus { border-color: var(--brand); }
-.fm-btns { display: inline-flex; gap: calc(var(--m-rem) * .08); }
+.fm-btns { display: flex; justify-content: flex-end; gap: calc(var(--m-rem) * .08); }
 .fm-note { margin: 0; font-size: calc(var(--m-rem) * .12); color: var(--text-3); }
 
 /* —— 回收站抽屉：参考站 width:35vw height:100vh —— */

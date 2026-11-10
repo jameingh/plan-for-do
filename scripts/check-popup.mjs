@@ -98,7 +98,7 @@ for (const c of CASES) {
   const steps = c.steps || [];
   for (let i = 0; i < steps.length; i++) {
     const s = steps[i];
-    if (i === steps.length - 1 && c.anchorMode === "point") point = await centerOf(s.css, s.text);
+    if (i === steps.length - 1 && c.anchorMode === "point") point = await centerOf(c.pointSel || s.css, c.pointSel ? undefined : s.text);
     const ok = s.kind === "rightclick" ? await rightClickSel(s.css, 400) : await clickSel(s.css, s.text, 400);
     if (!ok) { opened = false; break; }
     await sleep(250);

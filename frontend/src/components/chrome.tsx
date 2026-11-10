@@ -4,7 +4,7 @@
 // 说明：参考站把筛选放在哪我没能确认——它左栏只有模块切换、顶栏右侧只取到齿轮与刷新链。
 // 所以「筛选」弹层是我方的取舍（保住清单本/分类/标签这些筛选功能不丢），不是照抄。
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../api/client";
 import type { Category, Label, PlList } from "../api/types";
 import { bumpRevision, saveSettings, setPage, setFilters, toast, toastErr, useApp, type Page } from "../store/appStore";
@@ -50,9 +50,28 @@ export function Rail({ page }: { page: Page }) {
  */
 function AvatarMenu({ onClose }: { onClose: () => void }) {
   useEscClose(onClose);
+  const ref = useRef<HTMLUListElement | null>(null);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  // 落位从头像按钮的真实位置算，不再写死 left:70px。
+  // 那个 70 是参考站的左栏宽度，我们左栏 56px，写死会让菜单从头像右侧 26px 处冒出来、
+  // 像是飘在半空里（2026-11-10 用户指出）。改成头像左缘对齐、正下方展开，并做贴边保护。
+  useLayoutEffect(() => {
+    const btn = document.querySelector(".rail-avatar");
+    const menu = ref.current;
+    if (!btn || !menu) return;
+    const r = btn.getBoundingClientRect();
+    const w = menu.offsetWidth, h = menu.offsetHeight;
+    let left = r.left;
+    if (left + w > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 8 - w);
+    let top = r.bottom + 2;
+    if (top + h > window.innerHeight - 8) top = Math.max(8, window.innerHeight - 8 - h);
+    setPos({ left, top });
+  }, []);
   return (
     <div className="avatar-curtain" onMouseDown={onClose}>
-      <ul className="avatar-menu" role="menu" onMouseDown={(e) => e.stopPropagation()}>
+      <ul className="avatar-menu" role="menu" ref={ref}
+        style={pos ? { left: pos.left, top: pos.top } : undefined}
+        onMouseDown={(e) => e.stopPropagation()}>
         <li>
           <button role="menuitem" onClick={() => { onClose(); setPage("account"); }}>
             <I n="user" size={14} /><span>个人中心</span>
