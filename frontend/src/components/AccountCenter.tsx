@@ -8,6 +8,7 @@
 
 import { setPage, toast, useApp } from "../store/appStore";
 import { I } from "./ui";
+import { BrandMark } from "./BrandMark";
 
 export function AccountCenter() {
   const { boot, accountFrom } = useApp();
@@ -22,7 +23,7 @@ export function AccountCenter() {
 
       <div className="ac-body">
         <aside className="ac-guide">
-          <div className="ac-avatar">功</div>
+          <div className="ac-avatar"><BrandMark size={46} variant="icon" /></div>
           <div className="ac-nick">本地用户</div>
           <ul className="ac-tabs">
             <li className="is-sel"><I n="user" size={13} /><span>个人中心</span></li>
@@ -35,7 +36,7 @@ export function AccountCenter() {
           <section className="ac-card">
             <div className="ac-row">
               <span className="ac-lab">头像</span>
-              <span className="ac-val"><i className="ac-mini">功</i></span>
+              <span className="ac-val"><i className="ac-mini"><BrandMark size={26} variant="tile" /></i></span>
             </div>
             <div className="ac-row">
               <span className="ac-lab">昵称</span>

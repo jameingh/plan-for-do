@@ -10,6 +10,7 @@ import type { Category, Label, PlList } from "../api/types";
 import { bumpRevision, saveSettings, setPage, setFilters, toast, toastErr, useApp, type Page } from "../store/appStore";
 import { LOGIN_TODO } from "./AccountCenter";
 import { Dot, Glyph, I, iconKindOf, useEscClose } from "./ui";
+import { BrandMark } from "./BrandMark";
 
 const MODULES: { id: Page; icon: string; label: string }[] = [
   { id: "lists", icon: "list", label: "清单" },
@@ -27,7 +28,7 @@ export function Rail({ page }: { page: Page }) {
   return (
     <nav className={"rail" + (menu ? " is-menu" : "")} aria-label="模块">
       <button className="rail-avatar" title="功到" aria-label="账户菜单" aria-haspopup="menu" aria-expanded={menu}
-        onClick={() => setMenu((v) => !v)}>功</button>
+        onClick={() => setMenu((v) => !v)}><BrandMark size={32} variant="icon" /></button>
       {menu && <AvatarMenu onClose={() => setMenu(false)} />}
       {MODULES.map((m) => (
         <button key={m.id} className={"rail-item" + (page === m.id ? " is-active" : "")} aria-current={page === m.id}
