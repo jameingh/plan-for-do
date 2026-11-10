@@ -27,12 +27,24 @@ build/bin/
 *.exe
 *.exe~
 
+# —— 根目录的 node 依赖 ——
+# 本项目的前端依赖只装在 frontend/（frontend/node_modules）。根目录若出现
+# node_modules/ 与 package.json，是本机临时装的工具（如图标渲染库），不该进版本库。
+/node_modules/
+/package.json
+/package-lock.json
+
 # —— 日志、缓存与系统杂项 ——
 *.log
 frontend/.vite/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# —— IDE 本地配置 ——
+/.openidea/
+/.idea/
+/.vscode/
 
 # —— 陈旧备份稿（.bak 是改造过程中留下的旧副本，不是源码）——
 *.bak
