@@ -62,6 +62,22 @@ export function probeExpr(popupSel, anchorSel) {
     if (clippedBy(el)) { out.clipped.push(rec); continue; }
     out.kids.push(rec);
   }
+  // 命中测试：浮层上面不能压着别的元素。
+  // 2026-11-10 头像菜单就是这个毛病——菜单不透明，但它被「清单」按钮压在上面，
+  // 看着像透明。光看 background-color 查不出来，得问「这个点上最上面是谁」。
+  out.hits = [];
+  try {
+    const r = popup.getBoundingClientRect();
+    const pts = [[r.x + r.width / 2, r.y + r.height / 2],
+                 [r.x + Math.min(8, r.width / 2), r.y + Math.min(8, r.height / 2)],
+                 [r.right - Math.min(8, r.width / 2), r.bottom - Math.min(8, r.height / 2)]];
+    for (const [x, y] of pts) {
+      const hit = document.elementFromPoint(x, y);
+      if (!hit) continue;
+      if (hit === popup || popup.contains(hit)) continue;
+      out.hits.push(((hit.className || hit.tagName) || "").toString().slice(0, 50));
+    }
+  } catch (e) { out.hits = ["命中测试失败：" + String(e && e.message)]; }
   return JSON.stringify(out);
 })()`;
 }
@@ -124,6 +140,11 @@ export function judgePopup(g, opt = {}) {
   if (g.popup.right > g.vw + 1 || g.popup.bottom > g.vh + 1 ||
       g.popup.left < -1 || g.popup.top < -1) {
     problems.push(`弹层超出视口（视口 ${g.vw}×${g.vh}）`);
+  }
+
+  // —— 通用：不能被下层元素压住（看着像透明）——
+  for (const h of g.hits || []) {
+    problems.push(`浮层被「${h}」压在上面`);
   }
 
   return { ok: problems.length === 0, problems };

@@ -904,7 +904,10 @@ svg.icon { flex: none; display: block; }
 .hm-kv-pick:hover { border-color: var(--brand); color: var(--brand); }
 .hm-kv-input { width: 62px; border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; font-size: 12.5px; text-align: right; }
 .hm-kv-input:focus { outline: none; border-color: var(--brand); }
-.hm-unit-pop { position: absolute; z-index: 4; right: 0; top: 100%; margin-top: 4px; width: 92px; display: flex; flex-direction: column; gap: 1px;
+/* z-index 要压过 HabitCreate 里 Popover 的遮罩（pop-curtain 70 / pop-panel 71），
+   而且用 fixed：它嵌在那个可滚动的面板里，绝对定位会被裁掉一半、下半截点不到
+   （同文件的数字选择器 .np-pop 早就是这么处理的，这里漏了。2026-11-10 巡检抓到）。 */
+.hm-unit-pop { position: fixed; z-index: 80; left: 0; top: 0; width: 92px; display: flex; flex-direction: column; gap: 1px;
   background: var(--surface); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow-2); padding: 4px; }
 .hm-unit-item { padding: 3px 8px; font-size: 12px; color: var(--text-2); text-align: left; border-radius: 4px; }
 .hm-unit-item:hover { background: var(--brand-shallow); }
@@ -997,10 +1000,10 @@ svg.icon { flex: none; display: block; }
 /* 遮罩是 .rail 的子节点，光抬 .rail 的 z-index 不够：同一个层叠上下文里
    定位元素（遮罩 120）永远压在静态的模块按钮上面，菜单开着时点模块只关菜单不切页。 */
 .rail.is-menu .rail-avatar, .rail.is-menu .rail-item { position: relative; z-index: 130; }
-/* 落位由 AvatarMenu 按头像真实位置算好后内联覆盖；这里的值只是首帧兜底。
-   原先写死 left:70px —— 那是参考站的左栏宽度，我们左栏 56px，
-   结果菜单从头像右侧 26px 处冒出来，像是飘在半空（2026-11-10 用户指出）。 */
-.avatar-menu { position: absolute; left: 12px; top: 44px; width: 150px; list-style: none; margin: 0; padding: 5px 0;
+/* 菜单是 .avatar-curtain 的兄弟节点（见 chrome.tsx AvatarMenu）：
+   遮罩 120 压在模块按钮 130 之下（菜单开着时点模块仍能切页），
+   菜单自己 140 压在模块按钮之上（菜单盖住「清单」图标时不会透出图标）。 */
+.avatar-menu { position: fixed; z-index: 140; left: 12px; top: 44px; width: 150px; list-style: none; margin: 0; padding: 5px 0;
   background: var(--surface); border-radius: 6px; box-shadow: var(--shadow-2); animation: modal-pop var(--t-dialog) ease; }
 .avatar-menu li > button { display: flex; align-items: center; gap: 6px; width: 100%; height: 34px; padding: 0 14px;
   border: 0; background: transparent; font-size: 13px; color: var(--text); text-align: left; }

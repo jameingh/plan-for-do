@@ -75,15 +75,26 @@ async function fillSel(sel, value) {
 const exists = async (sel) => !!(await evalJs(`!!document.querySelector(${JSON.stringify(sel)})`));
 /** 切模块：点左栏。 */
 async function gotoTab(label) {
-  const ok = await clickSel(".rail-item", label, 600);
-  await sleep(400);
-  return ok;
+  for (let i = 0; i < 3; i++) {
+    await clickSel(".rail-item", label, 500);
+    await sleep(400);
+    const active = await evalJs(`(()=>{const L=[...document.querySelectorAll('.rail-item')];` +
+      `const b=L.find(e=>(e.innerText||"").trim()===${JSON.stringify(label)});return b?b.className.includes('is-active'):false})()`);
+    if (active) return true;
+    await sleep(300);
+  }
+  return false;
 }
 
 console.log(`=== 弹层几何自检（定位 / 不溢出）===\n`);
 for (const c of CASES) {
   await evalJs(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);
   await sleep(200);
+  // 关掉可能残留的模态框（新建习惯 / 新建清单）：它们带全屏遮罩，
+  // 不关掉的话左栏被盖住，下一条用例点模块就切不过去（会误报成「切不到」）。
+  await evalJs(`(()=>{const c=document.querySelector('.habit-modal .hm-close, .modal [aria-label="关闭"], .item-modal [aria-label="关闭"], .folder-manage .icon-close, .body-recycle-bin .icon-close');
+    if(c){c.click();return true}return false})()`);
+  await sleep(250);
   if (c.tab && !(await gotoTab(c.tab))) { console.log(`  – ${c.label}  SKIP（切不到「${c.tab}」）`); skip++; continue; }
 
   let prepOk = true;

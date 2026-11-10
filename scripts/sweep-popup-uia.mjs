@@ -179,15 +179,17 @@ const anyPopupOpen = async () => !!(await evalJs(`!!document.querySelector(${JSO
 /** 某个选择器在不在。 */
 const exists = async (sel) => !!(await evalJs(`!!document.querySelector(${JSON.stringify(sel)})`));
 
-/** 切模块：点左栏按钮，并用 CDP 确认真的切过去了（点到了不代表切成功）。 */
+/** 切模块：点左栏按钮，并用 CDP 确认真的切过去了（点到了不代表切成功）。
+ *  用 CDP 真鼠标而不是语义点击：切模块是导航不是被测对象，
+ *  语义通道在这种「同名孪生多、上一条用例可能留了抽屉」的状态下不稳。 */
 async function gotoTab(label) {
   for (let i = 0; i < 3; i++) {
-    const ref = await findRef({ name: label, role: "button" });
-    if (ref) { await clickRef(ref); await sleep(800); }
+    await cdpMouse(".rail-item", "left", label);
+    await sleep(500);
     const active = await evalJs(`(()=>{const L=[...document.querySelectorAll('.rail-item')];` +
       `const b=L.find(e=>(e.innerText||"").trim()===${JSON.stringify(label)});return b?b.className.includes('is-active'):false})()`);
     if (active) return true;
-    await sleep(400);
+    await sleep(300);
   }
   return false;
 }
@@ -202,6 +204,11 @@ for (const c of CASES) {
 
   // 收干净：关掉可能开着的浮层
   await evalJs(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);
+  await sleep(200);
+  // 再关掉可能残留的模态框（新建习惯 / 新建清单）：它们带全屏遮罩，
+  // 不关掉的话左栏被盖住，下一条用例点模块就切不过去（会误报成「切不到」）。
+  await evalJs(`(()=>{const c=document.querySelector('.habit-modal .hm-close, .modal [aria-label="关闭"], .item-modal [aria-label="关闭"], .folder-manage .icon-close, .body-recycle-bin .icon-close');
+    if(c){c.click();return true}return false})()`);
   await sleep(250);
   // 每条用例都显式切到自己的模块（不能假设实例起始页就是它）
   if (c.tab) {

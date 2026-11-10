@@ -385,6 +385,7 @@ function TargetModule({ draft, units, unitName, unitRef, onSave, onCancel, onUni
   const [each, setEach] = useState(draft.perClock || 1);
   const [auto, setAuto] = useState(draft.autoClock);
   const [pickUnit, setPickUnit] = useState(false);
+  const [unitPos, setUnitPos] = useState({ left: 0, top: 0 });
 
   async function save() {
     let unitId = unit;
@@ -416,9 +417,16 @@ function TargetModule({ draft, units, unitName, unitRef, onSave, onCancel, onUni
           <div className="hm-multi-title">每天多次</div>
           <div className="hm-kv"><span>习惯单位</span>
             <span className="hm-kv-right">
-              <button className="hm-kv-pick" onClick={() => setPickUnit((p) => !p)}>{unitName(unit)}</button>
+              <button className="hm-kv-pick" onClick={(e) => {
+                // 浮层用 fixed 定位 + 按按钮真实位置算落点——它嵌在 Popover 面板里，
+                // 面板自己 overflow-y:auto，绝对定位会被裁掉一半，下半截点不到
+                // （同文件的数字选择器 .np-pop 早就这么处理了，这里漏了）。
+                const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                setUnitPos({ left: r.left, top: r.bottom + 4 });
+                setPickUnit((p) => !p);
+              }}>{unitName(unit)}</button>
               {pickUnit && (
-                <span className="hm-unit-pop">
+                <span className="hm-unit-pop" style={{ left: unitPos.left, top: unitPos.top }}>
                   {units.map((u) => (
                     <button key={u.id} className={"hm-unit-item" + (u.id === unit ? " is-sel" : "")}
                       onClick={() => { setUnit(u.id); setNewUnit(""); setPickUnit(false); }}>{u.name}</button>

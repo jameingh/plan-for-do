@@ -68,7 +68,12 @@ function AvatarMenu({ onClose }: { onClose: () => void }) {
     setPos({ left, top });
   }, []);
   return (
-    <div className="avatar-curtain" onMouseDown={onClose}>
+    // 菜单是遮罩的**兄弟**而不是子节点：遮罩 z-index 120 要压在模块按钮（130）之下，
+    // 好让「菜单开着时点模块也能切页」继续成立；而菜单自己得压过模块按钮，
+    // 否则菜单盖住「清单」图标的地方会透出图标（2026-11-10 用户指出）。
+    // 放成兄弟节点后菜单能自己拿 z-index 140，不再被遮罩的层叠上下文压住。
+    <>
+      <div className="avatar-curtain" onMouseDown={onClose} />
       <ul className="avatar-menu" role="menu" ref={ref}
         style={pos ? { left: pos.left, top: pos.top } : undefined}
         onMouseDown={(e) => e.stopPropagation()}>
@@ -83,7 +88,7 @@ function AvatarMenu({ onClose }: { onClose: () => void }) {
           </button>
         </li>
       </ul>
-    </div>
+    </>
   );
 }
 
