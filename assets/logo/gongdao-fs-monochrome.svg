@@ -1,5 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <!-- white mark on transparent: use on any colored/dark background -->
-  <path d="M512 168 L772 452 L632 452 L632 792 L392 792 L392 452 L252 452 Z"
-        fill="#ffffff"/>
-</svg>

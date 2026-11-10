@@ -43,3 +43,7 @@ desktop.ini
 *.pem
 *.key
 serviceAccount*.json
+
+# —— 品牌资产的位图导出（assets/logo/ 只留 SVG 母版，位图随时可重新生成）——
+assets/logo/variants/*.png
+assets/logo/png/
