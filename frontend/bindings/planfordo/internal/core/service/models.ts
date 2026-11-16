@@ -297,6 +297,11 @@ export interface HabitContextInput {
     "id"?: string;
     "name": string;
     "sort": number;
+
+    /**
+     * true = 不在每日打卡页展示。编辑已有情境时必须把原值带回，否则会被重置为显示。
+     */
+    "hidden"?: boolean;
 }
 
 /**

@@ -1752,11 +1752,12 @@ export function createMockKernel(): Kernel {
           const c = db.contexts.find((x) => x.id === input.id);
           if (!c) throw err(`service: 对象不存在: context ${input.id}`);
           c.name = name;
+          c.hidden = input.hidden;
           c.updatedAt = t;
           emit("habitContext");
           return c;
         }
-        const c: HabitContext = seed({ id: newID(), name, sort: input.sort });
+        const c: HabitContext = seed({ id: newID(), name, sort: input.sort, hidden: input.hidden });
         db.contexts.push(c);
         emit("habitContext");
         return c;

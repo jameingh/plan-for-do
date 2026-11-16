@@ -164,6 +164,8 @@ type HabitContextInput struct {
 	ID   string `json:"id,omitempty"`
 	Name string `json:"name"`
 	Sort int    `json:"sort"`
+	// true = 不在每日打卡页展示。编辑已有情境时必须把原值带回，否则会被重置为显示。
+	Hidden bool `json:"hidden,omitempty"`
 }
 
 // HabitContexts 按 Sort 返回情境。
@@ -206,7 +208,7 @@ func (a *App) SaveHabitContext(ctx context.Context, in HabitContextInput) (*mode
 			return nil, err
 		}
 	}
-	c.Name, c.UpdatedAt = name, at
+	c.Name, c.Hidden, c.UpdatedAt = name, in.Hidden, at
 	e, err := store.NewEntity(store.KindHabitContext, c)
 	if err != nil {
 		return nil, err

@@ -93,8 +93,13 @@ export function HabitsPage() {
   const gkey = (day: string, k: string) => `${day}:${k}`;
   const isCollapsed = (k: string) => collapsedGroups.includes(gkey(selDay, k));
 
-  // 情境分段顺序 + 展平行，↑↓ 在里面走
-  const orderedCtx = view?.contexts ?? [];
+  // 情境分段顺序 + 展平行，↑↓ 在里面走。
+  // 情境管理里关掉显示开关的情境在这里就被滤掉：flat、键盘导航、渲染循环全从 orderedCtx 派生，
+  // 只在一个地方过滤就不会出现「看不见却能用键盘选到」的不一致。
+  const orderedCtx = useMemo(
+    () => (view?.contexts ?? []).filter((ctxId) => !contexts.find((c) => c.id === ctxId)?.hidden),
+    [view, contexts]
+  );
   const flat = useMemo(
     () => orderedCtx.flatMap((ctxId) => (view?.rowsByContext[ctxId] ?? [])),
     [view, orderedCtx]
@@ -203,7 +208,9 @@ export function HabitsPage() {
         <div className="group-list">
           {loadErr && <FieldError text={`加载失败：${loadErr}`} />}
           {!loadErr && !view && <Empty text="正在加载…" />}
-          {view && flat.length === 0 && <Empty text="还没有习惯。" action="新建习惯" onAction={() => { setEditingId(null); setCreating(true); }} />}
+          {view && flat.length === 0 && (view.contexts.length > 0 && orderedCtx.length === 0
+            ? <Empty text="所有情境都已隐藏，请在「情境管理」里打开显示开关。" />
+            : <Empty text="还没有习惯。" action="新建习惯" onAction={() => { setEditingId(null); setCreating(true); }} />)}
 
           {view && orderedCtx.map((ctxId) => {
             const rows = view.rowsByContext[ctxId] ?? [];
@@ -401,7 +408,13 @@ function ContextManager({ contexts, counts, onChanged, onClose }: {
   };
   const rename = (c: HabitContext, name: string) => {
     if (!name.trim() || name === c.name) { setRenaming(null); return; }
-    api.SaveHabitContext({ id: c.id, name: name.trim(), sort: c.sort }).then(() => { setRenaming(null); onChanged(); }).catch(toastErr);
+    // hidden 必须带回：SaveHabitContext 是整条覆盖，漏传会把关掉的显示开关重新打开
+    api.SaveHabitContext({ id: c.id, name: name.trim(), sort: c.sort, hidden: c.hidden }).then(() => { setRenaming(null); onChanged(); }).catch(toastErr);
+  };
+  const toggleVisible = (c: HabitContext) => {
+    api.SaveHabitContext({ id: c.id, name: c.name, sort: c.sort, hidden: !c.hidden })
+      .then(onChanged)
+      .catch(toastErr);
   };
   const del = (c: HabitContext) => {
     setDeleting(null);
@@ -427,6 +440,15 @@ function ContextManager({ contexts, counts, onChanged, onClose }: {
                 <>
                   <span className="grow">{c.name}</span>
                   <span className="muted small">{n}</span>
+                  <span className="muted small" title="关闭后，这个情境不在每日打卡页展示">打卡显示</span>
+                  <button
+                    className={"hm-switch" + (!c.hidden ? " is-on" : "")}
+                    role="switch"
+                    aria-checked={!c.hidden}
+                    aria-label={`在每日打卡中显示情境 ${c.name}`}
+                    title={c.hidden ? "已隐藏，点击在每日打卡中显示" : "正在每日打卡中显示，点击隐藏"}
+                    onClick={() => toggleVisible(c)}
+                  />
                   <button className="icon-btn" title="改名" aria-label={`重命名情境 ${c.name}`} onClick={() => setRenaming({ id: c.id, name: c.name })}><I n="pencil" size={12} /></button>
                   {c.id !== "ctx-always" && <button className="icon-btn danger" title="删除情境" aria-label={`删除情境 ${c.name}`} onClick={() => setDeleting(c)}><I n="trash" size={12} /></button>}
                 </>
@@ -442,7 +464,8 @@ function ContextManager({ contexts, counts, onChanged, onClose }: {
         <button className="btn primary" disabled={!draft.trim()} onClick={add}><I n="plus" size={14} />添加</button>
       </div>
       <FieldError text={err} />
-      <p className="muted small">删除情境后，其下习惯归入「全天」（内核行为，习惯本身不删）。「全天」为内置情境，不可删除。</p>
+      <p className="muted small">「打卡显示」关掉后，该情境不在每日打卡页展示，习惯和打卡记录都保留；随时可以再打开。「全天」为内置情境，不可删除。</p>
+      <p className="muted small">删除情境后，其下习惯归入「全天」（内核行为，习惯本身不删）。</p>
 
       {deleting && (
         <Modal title={`删除情境「${deleting.name}」`} onClose={() => setDeleting(null)}>

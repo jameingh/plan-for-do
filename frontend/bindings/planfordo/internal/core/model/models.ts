@@ -431,6 +431,12 @@ export interface HabitContext {
     "id": string;
     "name": string;
     "sort": number;
+
+    /**
+     * Hidden 为 true 时该情境不在「每日打卡」页展示（情境管理里的显示开关）。
+     * 用反向语义让零值 = 显示，老数据不带这个字段时行为不变。
+     */
+    "hidden"?: boolean;
     "createdAt": string;
     "updatedAt": string;
     "deletedAt"?: string;

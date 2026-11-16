@@ -39,4 +39,26 @@ export interface Result {
     "revision": number;
     "syncedAt": model$0.ClockTime;
     "skipped"?: string;
+
+    /**
+     * 附件字节是可选通路，单独计数：通道不支持 / 归档损坏时记录同步照常完成，
+     * 原因落在 BlobsSkipped 里，不会伪装成「同步成功但图还是裂的」。
+     * 从远端归档补到本地的字节数（条）
+     */
+    "blobsApplied"?: number;
+
+    /**
+     * 本机并进远端归档的字节数（条）
+     */
+    "blobsPushed"?: number;
+
+    /**
+     * 校验和/长度不对、跳过的归档条目数
+     */
+    "blobsRejected"?: number;
+
+    /**
+     * 整条通路被跳过的原因
+     */
+    "blobsSkipped"?: string;
 }

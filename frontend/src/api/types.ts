@@ -306,6 +306,8 @@ export interface HabitContext {
   id: string;
   name: string;
   sort: number;
+  /** true = 在情境管理里关掉了显示开关，每日打卡页不展示这个情境 */
+  hidden?: boolean;
   createdAt: string;
   updatedAt: string;
   deletedAt?: string;
@@ -489,6 +491,8 @@ export interface HabitContextInput {
   id?: string;
   name: string;
   sort: number;
+  /** true = 不在每日打卡页展示；改名时必须带回原值，否则会被重置为显示 */
+  hidden?: boolean;
 }
 
 // ---- 习惯视图（service.HabitView 等）----
