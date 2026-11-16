@@ -771,6 +771,9 @@ svg.icon { flex: none; display: block; }
 .page-head .title { font-size: 16px; font-weight: 500; }
 .page-body { padding: var(--s4) var(--content-pad-x); display: flex; flex-direction: column; gap: var(--s5); flex: 1; min-height: 0; overflow-y: auto; }
 .set-block { display: flex; flex-direction: column; gap: var(--s2); max-width: 560px; }
+/* 分组页签切换：小节保持在 DOM 里只切显隐（自检脚本按 .set-block 找控件），
+   但 .set-block 自己是 display:flex，会盖掉 hidden 的 UA 规则，这里显式盖回来。 */
+.set-block[hidden] { display: none; }
 .set-row { display: flex; align-items: center; gap: var(--s2); }
 .set-row > .lab { width: 88px; flex: none; font-size: 13px; color: var(--text-2); }
 

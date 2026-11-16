@@ -35,6 +35,8 @@ async function click(expr, wait = 320) {
 const at = (sel, text) => `(()=>{const L=[...document.querySelectorAll(${JSON.stringify(sel)})];` +
   `const e=${text ? `L.find(x=>(x.innerText||"").includes(${JSON.stringify(text)}))` : "L[0]"};` +
   `if(!e)return JSON.stringify(null);const r=e.getBoundingClientRect();return JSON.stringify({x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)})})()`;
+/** 设置页按「偏好设置 / 系统信息 / 数据与同步」分了组，进设置后先切到目标组。 */
+const settingsTab = async (label) => click(at('[aria-label="设置分组"] [role=tab]', label), 320);
 
 // 滚轮是滚动式的：挑一个「当前可见、且不是当前值」的小时点，别点视野外的
 const pickHour = (offset) => `(()=>{const L=document.querySelectorAll(".hm-wheel-list")[0];const box=L.getBoundingClientRect();
@@ -307,6 +309,7 @@ check("卡片按「每周 3 天」配额显示", /3/.test(made.txt || ""), made.
 
 console.log("\n=== 设置：新建习惯默认模式 ===");
 await click(at(".rail-item", "设置"), 700);
+await settingsTab("偏好设置");
 const seg = JSON.parse(await evalJs(`(()=>{const g=[...document.querySelectorAll('[role=tablist][aria-label="新建习惯默认模式"]')][0];
 return JSON.stringify(g?[...g.querySelectorAll(".seg")].map(e=>e.innerText.trim()+(e.className.includes("is-active")?"*":"")):null)})()`));
 check("设置里有「新建习惯」默认模式，选中引导", seg && seg.join(",") === "引导模式*,传统模式", JSON.stringify(seg));
@@ -316,6 +319,7 @@ await click(at(".btn.small.primary", "新建习惯"), 600);
 check("改成传统后新建弹窗默认开传统表单", await evalJs(`!!document.querySelector(".hm-name") && !document.querySelector(".hg")`) === true);
 await click(at(".hm-head .hm-close"), 400);
 await click(at(".rail-item", "设置"), 700);
+await settingsTab("偏好设置");
 await click(at('[role=tablist][aria-label="新建习惯默认模式"] .seg', "引导模式"), 500);
 await click(at(".rail-item", "习惯"), 700);
 await click(at(".btn.small.primary", "新建习惯"), 600);

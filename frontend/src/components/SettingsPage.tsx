@@ -1,24 +1,42 @@
-// SettingsPage.tsx —— 设置页：顶栏「设置」页签 + 单列内容（运行环境 / 偏好 / 同步通道）。
+// SettingsPage.tsx —— 设置页：顶栏三个分组页签 + 单列内容。
+//   · 偏好设置：默认分组 / 主题 / 新建习惯 / 显示已打卡 / 系统通知
+//   · 系统信息：运行环境（Start() 握手）+ 节假日与调休
+//   · 数据与同步：备份与恢复 + 同步通道
 // 条目2 把左栏改成图标模块栏后，本页不再有 200px 侧栏，偏好从侧栏移进内容区。
 // 安全约束：密码类字段（appSecret/password/token 等）输入后不回显、不进 console.log；
 // 注意内核 SyncChannels 会把 Options 原样带回（含密钥），这里只做掩码展示，不打印。
 // 校验/内核错误贴在触发的控件下方（规范 4.7）。
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { api, bridgeProbe } from "../api/client";
 import type { BackupSummary, CalendarStatus, NotifyInfo, SyncConfig, SyncResult, SyncState } from "../api/types";
 import { copyToClipboard } from "../lib/clipboard";
 import { saveSettings, toast, toastErr, useApp } from "../store/appStore";
 import { FeishuDriveGuide } from "./FeishuDriveGuide";
-import { SingleTab, TopBar } from "./chrome";
+import { TopBar } from "./chrome";
 import { Empty, FieldError, I, Modal, Segmented } from "./ui";
 
 const SECRET_KEY_RE = /secret|password|token|pwd|apikey|api_key/i;
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e)) || "未知错误";
 
+type SettingsTab = "pref" | "system" | "data";
+const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
+  { id: "pref", label: "偏好设置" },
+  { id: "system", label: "系统信息" },
+  { id: "data", label: "数据与同步" },
+];
+
 export function SettingsPage() {
   const { booted, boot, settings, revision } = useApp();
+  // 分组页签。5 个小节始终留在 DOM 里（只是 hidden），这样从别的页面带着目标进来时
+  // 自检脚本仍按 .set-block / aria-label 找得到控件，不用整套重写定位逻辑。
+  const [tab, setTab] = useState<SettingsTab>("pref");
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const pickTab = (id: SettingsTab) => {
+    setTab(id);
+    bodyRef.current?.scrollTo({ top: 0 }); // 别把上个分组的滚动位置带到新分组
+  };
   const [channels, setChannels] = useState<SyncConfig[]>([]);
   const [editing, setEditing] = useState<SyncConfig | null>(null);
   const [isNew, setIsNew] = useState(false);
@@ -114,11 +132,18 @@ export function SettingsPage() {
 
   return (
     <>
-      <TopBar tabs={<SingleTab label="设置" />} />
+      <TopBar tabs={
+        <nav className="gtabs" role="tablist" aria-label="设置分组">
+          {SETTINGS_TABS.map((t) => (
+            <button key={t.id} role="tab" aria-selected={tab === t.id}
+              className={"gtab" + (tab === t.id ? " is-active" : "")} onClick={() => pickTab(t.id)}>{t.label}</button>
+          ))}
+        </nav>
+      } />
 
       <main className="content">
-        <div className="page-body">
-          <section className="set-block">
+        <div className="page-body" ref={bodyRef}>
+          <section className="set-block" hidden={tab !== "system"}>
             <h5 className="section-title">运行环境<i>Start() 握手</i></h5>
             {boot ? (
               <div className="env-card">
@@ -137,7 +162,7 @@ export function SettingsPage() {
             )}
           </section>
 
-          <section className="set-block">
+          <section className="set-block" hidden={tab !== "system"}>
             <h5 className="section-title">节假日与调休<i>法定工作日、跳过节假日、班/休标记的数据</i></h5>
             {cal ? (
               <div className="env-card">
@@ -160,7 +185,7 @@ export function SettingsPage() {
             )}
           </section>
 
-          <section className="set-block">
+          <section className="set-block" hidden={tab !== "pref"}>
             <h5 className="section-title">偏好设置</h5>
             <div className="set-row">
               <span className="lab">默认分组</span>
@@ -202,7 +227,7 @@ export function SettingsPage() {
             </p>
           </section>
 
-          <section className="set-block">
+          <section className="set-block" hidden={tab !== "data"}>
             <h5 className="section-title">备份与恢复<i>与同步通道无关的一份加密文件</i></h5>
             <div className="field-row">
               <button className="btn" disabled={bkBusy} onClick={() => void pickBackup("export")}>
@@ -219,7 +244,7 @@ export function SettingsPage() {
             </p>
           </section>
 
-          <section className="set-block">
+          <section className="set-block" hidden={tab !== "data"}>
             <h5 className="section-title">同步通道</h5>
             <div className="field-row">
               <button className="btn" onClick={() => { setEditing(null); setGuiding(true); }}>

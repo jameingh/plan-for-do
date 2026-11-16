@@ -40,6 +40,10 @@ async function clickAt(sel, text, wait = 320) {
   await clickXY(pt.x, pt.y, wait);
   return pt;
 }
+/** 设置页按「偏好设置 / 系统信息 / 数据与同步」分了组，点分组里的按钮前先切到那一组。 */
+async function settingsTab(label) {
+  await clickAt('[aria-label="设置分组"] [role=tab]', label, 320);
+}
 async function key(k) {
   for (const type of ["keyDown", "keyUp"]) {
     await send("Input.dispatchKeyEvent", { type, key: k, code: k, windowsVirtualKeyCode: k === "Escape" ? 27 : 0, text: "" });
@@ -107,6 +111,7 @@ check("从设置页进的，返回回设置页", backSettings.account === false 
 
 console.log("\n=== 设置页：节假日与调休 ===");
 // 这一节是「班/休」与「法定工作日」的数据交代处：覆盖哪几年、出处、往哪导入，都得看得见。
+await settingsTab("系统信息");
 const cal = JSON.parse(await evalJs(`(()=>{const b=[...document.querySelectorAll(".set-block")];` +
   `const s=b.find(x=>(x.innerText||"").includes("节假日与调休"));if(!s)return JSON.stringify({on:false});` +
   `return JSON.stringify({on:true,title:s.querySelector(".section-title")?.innerText||"",` +
@@ -121,6 +126,7 @@ check("说明写清「表没覆盖的年份会退化」", /退化/.test(cal.note
 console.log("\n=== 设置页：系统原生通知 ===");
 // 这一段验的是「界面 → 绑定 → 内核 → 系统通知」这条链能不能走通；
 // 横幅画不画得出来是 Windows 那侧的事（见 docs/architecture.md 第 11 节第 3 条）。
+await settingsTab("偏好设置");
 const nrow = JSON.parse(await evalJs(`(()=>{const s=[...document.querySelectorAll(".set-block")].find(x=>(x.innerText||"").includes("偏好设置"));` +
   `if(!s)return JSON.stringify({on:false});const lab=[...s.querySelectorAll(".nav-item")].find(e=>e.innerText.includes("系统原生通知"));` +
   `const btn=[...s.querySelectorAll(".btn")].find(e=>e.textContent.includes("测试通知"));` +
@@ -149,6 +155,7 @@ await clickAt(".rail-item", "设置", 700);
 console.log("\n=== 设置页：备份与恢复 ===");
 // 文件对话框是操作系统画的，CDP 点不到；这一段只验界面入口与口径文案，
 // 导出/恢复本身由 Go 单测 + CLI 端到端覆盖（plando export/import）。
+await settingsTab("数据与同步");
 const bk = JSON.parse(await evalJs(`(()=>{const s=[...document.querySelectorAll(".set-block")].find(x=>(x.innerText||"").includes("备份与恢复"));` +
   `if(!s)return JSON.stringify({on:false});const btns=[...s.querySelectorAll(".btn")].map(e=>e.textContent.trim());` +
   `return JSON.stringify({on:true,btns,text:s.innerText})})()`));
@@ -159,6 +166,9 @@ check("文案说明「口令加密、恢复是合并不清库、口令丢了打�
   String(bk.text).slice(0, 100));
 
 console.log("\n=== 预留动作不动数据 ===");
+// 两个读数必须在同一个分组下量：body.innerText 只含当前可见 tab，
+// 而「去设置」回到的是默认的「偏好设置」，这里先切回去再取基线。
+await settingsTab("偏好设置");
 const before = await evalJs(`document.body.innerText.length`);
 const STUB = /没有账号体系/;
 await clickAt(".rail-item", "清单", 700);

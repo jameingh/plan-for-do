@@ -60,7 +60,9 @@ const valueInputOf = (k) => `(() => { const row=[...document.querySelectorAll('.
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DIR = process.env.PLANDO_SYNC_SHARE || path.join(ROOT, "tmp", "sync-share");
 
-// 0. 先清掉历史通道，保证这次是「从零配置」的干净路径
+// 0. 先切到「数据与同步」分组（通道列表和「新增通道」都在这里），再清掉历史通道，保证这次是「从零配置」的干净路径
+await clickOn(byText("数据与同步"));
+await sleep(300);
 const existing = await ev(`(() => [...document.querySelectorAll('article')].map(a=>a.innerText.replace(/\\s+/g,' ').slice(0,80)))()`);
 log("初始通道", { count: existing.length, existing });
 for (let guard = 0; guard < 5 && (await ev(`document.querySelectorAll('article').length`)) > 0; guard++) {

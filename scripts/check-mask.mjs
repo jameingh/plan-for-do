@@ -49,6 +49,10 @@ async function clickAt(sel, text, wait = 320) {
   if (!pt) throw new Error("找不到 " + sel);
   await clickXY(pt.x, pt.y, wait);
 }
+/** 设置页按「偏好设置 / 系统信息 / 数据与同步」分了组，点分组里的按钮前先切到那一组。 */
+async function settingsTab(label) {
+  await clickAt('[aria-label="设置分组"] [role=tab]', label, 320);
+}
 async function key(k) {
   for (const type of ["keyDown", "keyUp"]) {
     await send("Input.dispatchKeyEvent", { type, key: k, code: k, windowsVirtualKeyCode: k === "Escape" ? 27 : 0, text: "" });
@@ -131,6 +135,7 @@ check("再按 Esc 关习惯弹窗", (await openModal()) === null);
 
 // 5) 通道配置表单（凭据敲一半最怕误点）
 await clickAt(".rail-item", "设置", 700);
+await settingsTab("数据与同步");
 await clickAt(".btn", "新增通道", 600);
 const chan = await evalJs(`(()=>{const m=document.querySelector(".modal-mask");return m?m.querySelector("h3").innerText:"没开"})()`);
 check("通道配置弹窗已打开", chan.includes("新增同步通道") || chan.includes("编辑通道"), chan);
