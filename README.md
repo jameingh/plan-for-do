@@ -1,157 +1,216 @@
-# 功到 · planfordo
+<div align="center">
+  <img src="assets/logo/masters/gongdao-symbol.svg" alt="Gongdao" width="96" height="96" />
+</div>
 
-> 本地优先的跨端清单 / 习惯 / 视图 / 专注 / 备忘录应用。纯 Go 内核 + Wails v3 桌面壳 + React 前端，
-> 数据默认只存在你自己机器上，同步通道可插拔（飞书多维表格 / 飞书云盘 / WebDAV / 本地文件夹）。
+# Gongdao · planfordo
 
-![CI](https://github.com/jameingh/plan-for-do/actions/workflows/ci.yml/badge.svg) ![Release](https://github.com/jameingh/plan-for-do/actions/workflows/release.yml/badge.svg)
+### Your life, on your machine. One app for lists, habits, views, focus and notes.
 
-中文项目，文档与代码注释均为中文。产品名「功到」取「功到自然成」；界面与交互的规格记录在
-[docs/design-reference.md](docs/design-reference.md)，架构与口径记录在 [docs/architecture.md](docs/architecture.md)。
+**Lists with recurring rules. Habits with streaks and heatmaps. Focus timers that link to your tasks. Notes with attachments. All local-first, with pluggable sync.**
 
-## 它是什么
+[![CI](https://github.com/jameingh/plan-for-do/actions/workflows/ci.yml/badge.svg)](https://github.com/jameingh/plan-for-do/actions/workflows/ci.yml) [![Release](https://github.com/jameingh/plan-for-do/actions/workflows/release.yml/badge.svg)](https://github.com/jameingh/plan-for-do/actions/workflows/release.yml) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
-| 模块 | 里面有什么 |
-| --- | --- |
-| 清单 | 日期 / 分类 / 四象限三种分组，重复规则（每天、每周几、每月几日、每隔 N 天、按周月配额）、子任务、跨天与自选多日、时间点与时间段、提醒（含自定义提醒时间）、标签、置顶、逾期顺延、打卡三态（成功 / 跳过 / 失败） |
-| 视图 | 日 / 周 / 月三种日历视图（月网格 + 跨天条、周日视图 24 小时网格 + 重叠并排分栏 + 折叠小时段）、自定义视图（内容多选 + 颜色模式含 30 色板）、两个「显示已打卡」开关 |
-| 习惯 | 每天一次 / 每天多次（量化 + 单位）、情境分段、按排期日历打卡、可回溯补打卡、心得、新建引导模式（微启动分步提问），以及「习惯统计」四页签（日/周/月/年：打卡格子、完美打卡、连续天数、全年热力图） |
-| 专注 | 正计时 / 番茄钟 / 倒计时三个子模块，都能关联任务；沉浸式计时、暂停与结束确认、结算页与专注心得、专注详情页（含事件时间轴）；数据页有统计分析（累计与今日总览、时长分布、全时段热图、时长分解、补记与历史列表）与数据分布（日/月/年） |
-| 备忘录 | 文件夹管理 + 拖拽排序、搜索（回车触发、命中词高亮）、按创建/修改时间排序、置顶、右键菜单、富文本编辑器（字体/字号/颜色/对齐/列表/复选框/背景）、附件、回收站与彻底删除 |
-| 设置 | 运行环境（握手信息）、节假日与调休（覆盖年份 / 出处 / 导入目录）、偏好（默认分组 / 主题 / 新建习惯模式 / 显示已打卡 / 系统通知）、备份与恢复（口令加密）、同步通道配置（含飞书云盘引导配置）与「立即同步」 |
+![Windows](https://img.shields.io/badge/Windows-0078D6?logo=windows&logoColor=white) ![Linux](https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=black) ![macOS](https://img.shields.io/badge/macOS-000000?logo=apple&logoColor=white)
 
-## 架构
+[Download](https://github.com/jameingh/plan-for-do/releases) · [Architecture](docs/architecture.md) · [Design reference](docs/design-reference.md)
 
-```
-api.go / main.go            Wails v3 桌面壳：绑定 API、事件、静态资源内嵌（//go:embed frontend/dist）
-cmd/plando                  同内核的命令行：add / clock / habit / habit-clock / focus / sync / stats …
-internal/core/model         领域对象（不依赖 UI、驱动、同步实现；iOS 将来直接复用）
-internal/core/store         单表 entity（kind,id + JSON data + 派生列 day/parent/status/sort），纯 Go sqlite
-internal/core/repeat        重复规则展开、override、节假日
-internal/core/calendar      农历/节气/节日换算 + 内置法定节假日与调休年度表（可被本机导入覆盖）
-internal/core/service       用例：清单 / 习惯 / 视图 / 专注 / 备忘录 / 提醒 / 统计
-internal/core/sync          合并引擎（记录级 LWW + tombstone 全量快照）+ 通道接口
-internal/core/sync/channel  feishuBase / feishuDrive / webdav / localdir
-frontend/src                React + Vite + TS；api/client.ts 是唯一接缝（Wails 绑定 / 浏览器 mock 两边同口径）
-scripts                     CDP 真点击自检脚本 + 种子数据 + 截图脚本
-docs                        设计规格、架构、iOS 打包步骤
-```
+---
 
-内核刻意保持 CGO-free（`CGO_ENABLED=0` 可编译），所以交叉出包不需要对应平台的主机。
+## Is planfordo for you?
 
-## 本地跑起来
+planfordo is a local-first desktop app for organizing your day. Use it if you want:
+
+- **One place for lists, habits, focus and notes** — no stitching together four different apps.
+- **Recurring lists that actually bend** — daily, weekly on chosen days, monthly dates, every N days, or weekly/monthly quotas; subtasks, time points and ranges, reminders, tags and overdue roll-forward.
+- **Habit tracking with real history** — scheduled check-ins, backfill, quantitative habits with units, contexts, notes, and day/week/month/year statistics with heatmaps.
+- **Focus sessions tied to tasks** — stopwatch, pomodoro and countdown, with a settlement page, event timeline and statistics.
+- **Your data to stay yours** — no account, no server. Data lives on your machine and sync happens only after you configure a channel.
+- **Pluggable sync** — Feishu Base, Feishu Drive, WebDAV, or a local folder, merged record-by-record with last-write-wins.
+
+If you are happy with a single cloud service and want someone else to hold your data, you probably do not need planfordo.
+
+Supported desktops: **Windows** (primary, tested), **Linux** and **macOS** (CGO-free experimental builds; see [Releases](#releases)). A browser-only mode with in-memory mock data is available for looking around the UI.
+
+## Quick start
+
+### 1. Install
+
+Grab a build from [Releases](https://github.com/jameingh/plan-for-do/releases). The Windows build is the tested one; it uses the GUI subsystem, so no console window pops up.
+
+To build from source (Go 1.27+, Node 20+; Windows needs the WebView2 runtime, bundled with Win10/11):
 
 ```bash
-# 1) 前端产物（桌面壳把它内嵌进二进制）
+# 1) frontend assets (the desktop shell embeds them into the binary)
 cd frontend && npm ci && npm run build && cd ..
 
-# 2) 桌面应用
-CGO_ENABLED=0 go build -o bin/planfordo.exe .   # 非 Windows 用 -o bin/planfordo
+# 2) desktop app
+CGO_ENABLED=0 go build -o bin/planfordo.exe .   # on non-Windows: -o bin/planfordo
 ./bin/planfordo.exe
 
-# 只想在浏览器里看界面（走内存 mock，同口径的另一套实现）
+# just want a look at the UI in a browser (in-memory mock, same contract)
 cd frontend && npm run dev
 ```
 
-环境：Go 1.27+、Node 20+。Windows 需要 WebView2 运行时（Win10/11 自带）。
+The core is deliberately CGO-free (`CGO_ENABLED=0`), so cross-compiling does not need a host of the target platform.
 
-命令行（与界面共用一个内核与一个数据目录）：
+### 2. Use it
+
+The desktop app opens on your lists. From there:
+
+- Switch modules in the left rail: lists, habits, views, focus, notes and settings.
+- Enter the habit statistics page from the top bar of the habits module.
+- Enter the list statistics page from the top bar of the lists module.
+- Configure a sync channel under Settings → Data & Sync, then hit "Sync now".
+
+### 3. From the command line
+
+`cmd/plando` uses the same kernel and the same data directory as the GUI:
 
 ```bash
 go build -o bin/plando.exe ./cmd/plando
-./bin/plando.exe add "写周报" --day 2026-11-10 --time 09:00-10:30
-./bin/plando.exe habit "晨跑" --freq "weekly:1,3,5" --backfill 7
-./bin/plando.exe habit-clock "晨跑" --day 2026-11-08
-./bin/plando.exe focus --type pomo --minutes 25 --cycles 4 --item "写周报"
-./bin/plando.exe sync            # 跑所有启用的通道
-./bin/plando.exe calendar        # 节假日数据覆盖了哪几年、出处、导入目录
-./bin/plando.exe export backup.planfordo --with-attachments   # 口令加密的全量备份（PLANDO_BACKUP_PASSWORD）
-./bin/plando.exe import backup.planfordo                      # 恢复：按最后修改时间合并，不清库
-./bin/plando.exe calendar day 2026-10-01     # 查一天的班/休
-./bin/plando.exe where           # 数据目录与设备 ID
+./bin/plando.exe add "Weekly report" --day 2026-11-10 --time 09:00-10:30
+./bin/plando.exe habit "Morning run" --freq "weekly:1,3,5" --backfill 7
+./bin/plando.exe habit-clock "Morning run" --day 2026-11-08
+./bin/plando.exe focus --type pomo --minutes 25 --cycles 4 --item "Weekly report"
+./bin/plando.exe sync            # run every enabled channel
+./bin/plando.exe calendar        # which years of holiday data are loaded, and from where
+./bin/plando.exe export backup.planfordo --with-attachments   # password-encrypted full backup (PLANDO_BACKUP_PASSWORD)
+./bin/plando.exe import backup.planfordo                      # restore: merge by last-modified time, never wipe
+./bin/plando.exe calendar day 2026-10-01     # is this day a workday or a holiday?
+./bin/plando.exe where           # data directory and device ID
 ```
 
-## 数据在哪里，隐私怎么处理
+## What it does
 
-- 数据默认在 `%APPDATA%\planfordo`（macOS/Linux 走系统配置目录）：`planfordo.db`、附件、同步状态、`app-errors.log`。
-- 没有账号体系，没有服务端；同步只有在你配了通道之后才发生，密钥只存本机 `meta`，不进快照、不打日志、界面不回显。
-- 附件字节走独立的 `planfordo-blobs.json` 归档（快照里只有附件元数据）：localdir / WebDAV / feishuDrive 支持，feishuBase 明确不支持；单份归档上限 14MB 原始附件字节（base64 后约 19MB）。
-- 本仓库**不含**任何用户数据：数据库、日志、`tmp/` 下的自检临时库与验证截图、参考站实拍与本机截图全部被 `.gitignore` 挡住。
-  文档里引用到的取证内容已脱敏（任务名换成中性示例，测量数值未改）。
+### Lists
 
-## 测试
+Three groupings — by date, by category, or by Eisenhower quadrant — over one recurring engine: daily, weekly on chosen weekdays, monthly dates, every N days, and weekly/monthly quotas. Items carry subtasks, time points and time ranges, reminders (with custom reminder times), tags, pinning and overdue roll-forward. Clock-in is three-state: success, skipped, failed.
+
+### Views
+
+Day, week and month calendars. The month grid draws cross-day bars; the Sunday view is a 24-hour grid with overlapping columns and collapsible hour blocks. Custom views let you multi-select content and pick a color mode from a 30-color palette. Two independent "show completed" switches control what is visible.
+
+### Habits
+
+Daily-once and daily-multiple habits, with quantities and units. Habits can be split into contexts, checked in against their schedule, backfilled, and annotated with notes. A guided creation flow asks questions step by step. The statistics page has four tabs — day, week, month and year — with check-in grids, perfect days, streaks and a full-year heatmap.
+
+### Focus
+
+Stopwatch, pomodoro and countdown, each linkable to a task. Immersive timer, pause and finish confirmation, a settlement page with session notes, and a detail page with an event timeline. The data page adds summary statistics (cumulative and today, duration distribution, all-day heatmap, duration breakdown, backfilled records and history) plus day/month/year distributions.
+
+### Notes
+
+Folders with drag-and-drop ordering, search (Enter to trigger, matched terms highlighted), sort by creation or modification time, pinning, a right-click menu, and a rich-text editor (font, size, color, alignment, lists, checkboxes, background). Attachments, a recycle bin and permanent delete are included.
+
+### List statistics
+
+A dedicated page reached from the lists top bar. It computes check-in rate, a four-hour-bucket day trend, week/month distribution over occurrences, and a self-discipline index built from control (check-in rate), efficiency (successes over check-ins) and diligence (daily check-ins over three, capped). It reuses a single `CalendarView(showDone=true)` call — no extra Go API, no regenerated bindings.
+
+### Settings
+
+Runtime handshake info, holiday and makeup-work data (covered years, sources, import directory), preferences (default grouping, theme, new-habit mode, show completed, system notifications), password-encrypted backup and restore, sync channel configuration (including guided Feishu Drive setup), and "Sync now".
+
+## How it fits together
+
+```
+api.go / main.go            Wails v3 desktop shell: bound API, events, embedded static assets (//go:embed frontend/dist)
+cmd/plando                  CLI over the same kernel: add / clock / habit / habit-clock / focus / sync / stats ...
+internal/core/model         Domain objects (no UI, driver or sync dependencies; reusable by iOS later)
+internal/core/store         Single-table entity (kind,id + JSON data + derived day/parent/status/sort columns), pure-Go sqlite
+internal/core/repeat        Recurrence expansion, overrides, holidays
+internal/core/calendar      Lunar calendar, solar terms, festivals + built-in statutory holiday tables (overridable locally)
+internal/core/service       Use cases: lists / habits / views / focus / notes / reminders / statistics
+internal/core/sync          Merge engine (record-level LWW + tombstone full snapshot) + channel interface
+internal/core/sync/channel  feishuBase / feishuDrive / webdav / localdir
+frontend/src                React + Vite + TS; api/client.ts is the single seam (Wails bindings and browser mock share one contract)
+scripts                     CDP real-click self-checks, seed data, screenshot helpers
+docs                        Design spec, architecture, iOS packaging steps
+```
+
+`frontend/src/api/client.ts` is the only seam between the UI and the kernel: Wails bindings on desktop, an in-memory mock in the browser, same contract on both sides.
+
+## Sync and privacy
+
+- Data lives in `%APPDATA%\planfordo` (system config directories on macOS/Linux): `planfordo.db`, attachments, sync state and `app-errors.log`.
+- There is no account system and no server. Sync only happens after you configure a channel. Secrets stay in local `meta` — never in a snapshot, never in logs, never echoed in the UI.
+- Attachment bytes travel in a separate `planfordo-blobs.json` archive (snapshots carry only metadata). localdir, WebDAV and feishuDrive support it; feishuBase does not. A single archive is capped at 14 MB of raw attachment bytes (~19 MB after base64).
+- The current strategy is a full snapshot with record-level LWW and a union of both ends. Incremental sync is deliberately deferred until data volume justifies it (over 20k records, over 5 MB compressed snapshot, automatic scheduled sync, more than three devices, or metered mobile data). The full snapshot stays as a baseline even if incrementals are added later.
+- This repository contains **no** user data: the database, logs, temporary self-check databases under `tmp/`, verification screenshots and local captures are all ignored by `.gitignore`. Material referenced in the docs is redacted (task names replaced with neutral examples, measurements unchanged).
+
+## Documentation
+
+- [Architecture](docs/architecture.md) — storage, merge engine, channel internals
+- [Design reference](docs/design-reference.md) — UI and interaction spec
+- [iOS / TestFlight packaging](docs/ios-testflight.md) — signed macOS and iOS builds
+- [Sync solutions selection](docs/sync-solutions-selection.md) — why full snapshots for now
+- [Reference site notes](docs/reference-zomoplan.md) — interaction references
+
+## Testing
 
 ```bash
 CGO_ENABLED=0 go vet ./internal/...
-CGO_ENABLED=0 go test ./...          # 内核单测：重复展开、存储、用例、同步合并、各通道 httptest 打桩
+CGO_ENABLED=0 go test ./...          # kernel units: recurrence, store, use cases, sync merge, channels via httptest
 cd frontend && npx tsc --noEmit
 ```
 
-这些每次 push 都会由 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) 跑一遍：
-`kernel`（vet + go test）与 `web`（tsc + 构建）在 ubuntu 上，八个界面自检各占一个 **windows runner** job
-（它们起真的 Wails 窗口 + WebView2，靠 CDP 派发真鼠标键盘事件，Linux/macOS 上没有这套东西），
-失败的 job 会上传当时的截图与实例日志作为工件。
+Every push runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml): `kernel` (vet + go test) and `web` (tsc + build) on Ubuntu, plus one Windows runner job per UI self-check (they start a real Wails window + WebView2 and dispatch real mouse/keyboard events through CDP — Linux/macOS runners cannot do this). Failing jobs upload a screenshot and the instance log as artifacts.
 
-界面回归走 CDP 真鼠标键盘事件（不靠人点，也不信假数据）：
+UI regression uses real mouse and keyboard events through CDP — no human clicking, no trusted fake data:
 
 ```bash
 bash scripts/verify-restart.sh 9256 focus && bash scripts/seed-focus.sh && node scripts/check-focus.mjs 9256
 ```
 
-| 脚本 | 覆盖 | 项数 |
+| Script | Covers | Checks |
 | --- | --- | --- |
-| `check-modal.mjs` | 新建/详情弹窗逐面板（日期、时间、重复、提醒、标签、优先级、子任务、结束）+ 班/休角标 | 66 |
-| `check-habit.mjs` | 新建习惯弹窗（图标、频率、单位、情境、提醒、引导模式） | 66 |
-| `check-view.mjs` | 日/周/月视图、跨天条、折叠、自定义视图、两个开关、班/休角标 | 67 |
-| `check-stat.mjs` | 习惯统计四页签（含内核记录反查） | 45 |
-| `check-memo.mjs` | 备忘录（列表、编辑器、文件夹、回收站、搜索排序） | 81 |
-| `check-focus.mjs` | 专注三计时器 + 关联任务 + 沉浸/结算/详情 + 数据页（含番茄真等 62 秒）+ 跨设备接管 | 106 |
-| `check-mask.mjs` / `check-account.mjs` | 遮罩与层级、头像菜单与个人中心、节假日数据交代、系统通知链路、备份入口 | 23 / 32 |
+| `check-modal.mjs` | New/detail dialogs, panel by panel (date, time, recurrence, reminder, tags, priority, subtasks, end) + workday/holiday badges | 66 |
+| `check-habit.mjs` | New-habit dialog (icon, frequency, unit, context, reminder, guided mode) | 66 |
+| `check-view.mjs` | Day/week/month views, cross-day bars, folding, custom views, two switches, workday/holiday badges | 67 |
+| `check-stat.mjs` | Habit statistics, four tabs, cross-checked against kernel records | 45 |
+| `check-memo.mjs` | Notes (list, editor, folders, recycle bin, search and sort) | 81 |
+| `check-focus.mjs` | Three timers + linked tasks + immersive/settlement/detail + data page (including a real 62-second pomodoro) + cross-device takeover | 106 |
+| `check-mask.mjs` / `check-account.mjs` | Masking and layering, avatar menu and account center, holiday data disclosure, system notification chain, backup entry | 23 / 32 |
+| `check-popup.mjs` | Every popup must satisfy position (gap ≤16px, no horizontal detachment) and no-overflow (no clipped descendants, nothing covered by lower elements) | — |
 
-种子与断言一律用**相对日期**（`scripts/lib/d.mjs`：本周一 `m N` / 今天 `d N`），所以脚本跑在哪一天都成立；
-每个脚本都要按它开头注释里的 start tab 重启实例后再跑，共用实例会被上一个脚本的页面状态污染出假失败。
+Seeds and assertions all use **relative dates** (`scripts/lib/d.mjs`: Monday `m N` / today `d N`), so the scripts work any day of the week. Each script must restart its instance with the start tab noted in its header comment; sharing an instance lets the previous script's page state leak in and produce false failures.
 
-## 发布
+## Releases
 
-推一个 `v*` 标签就会出包（也可以在工作流页面手动触发，手动触发产出预发布版本）：
+Pushing a `v*` tag produces a build (you can also trigger the workflow manually; manual runs produce a prerelease):
 
 ```bash
-git tag v0.1.0 && git push origin v0.1.0
+git tag v0.4.0 && git push origin v0.4.0
 ```
 
-[`.github/workflows/release.yml`](.github/workflows/release.yml) 在单个 ubuntu runner 上交叉编译六个目标，
-打 zip 与 sha256，然后创建 GitHub Release 并挂上产物：
+[`.github/workflows/release.yml`](.github/workflows/release.yml) cross-compiles six targets on one Ubuntu runner, packs zip files with sha256 checksums, then creates a GitHub Release and attaches the artifacts.
 
-| 产物 | 构建标签 | 状态 |
+| Artifact | Build tags | Status |
 | --- | --- | --- |
-| `planfordo-windows-amd64.zip` | `production`，GUI 子系统（不弹控制台） | **已实测**（主力平台） |
-| `planfordo-windows-arm64.zip` | 同上 | 编译通过，未在 ARM 机上跑过 |
-| `planfordo-linux-amd64.zip` / `-arm64` | `production purego` | Wails 的 CGO-free 实验后端；运行时仍需系统 WebKitGTK，未实测 |
-| `planfordo-darwin-amd64.zip` / `-arm64` | `production purego` | 未签名（Gatekeeper 会拦），未实测；正式 macOS/iOS 打包见 [docs/ios-testflight.md](docs/ios-testflight.md) |
+| `planfordo-windows-amd64.zip` | `production`, GUI subsystem (no console) | **Tested** (primary platform) |
+| `planfordo-windows-arm64.zip` | same | Compiles, not run on ARM hardware |
+| `planfordo-linux-amd64.zip` / `-arm64` | `production purego` | CGO-free experimental Wails backend; still needs system WebKitGTK at runtime, untested |
+| `planfordo-darwin-amd64.zip` / `-arm64` | `production purego` | Unsigned (Gatekeeper will block), untested; signed macOS/iOS builds in [docs/ios-testflight.md](docs/ios-testflight.md) |
 
-## 已知限制
+## Known limitations
 
-真正还缺的，按优先级：
+The real gaps, by priority:
 
-1. **feishuBase 不带附件字节**：localdir / WebDAV / feishuDrive 已经能把附件字节随同步带过去
-   （记录合并后补缺失字节，见 `docs/architecture.md` §7），换设备不再「图不在这台设备上」；
-   但多维表格没有二进制对象语义，feishuBase 明确不支持，只同步附件元数据。
-   单份归档上限 14MB 原始字节（base64 后受飞书 `upload_all` 20MB 单文件限制），超了请改用备份文件勾「连附件一起导出」（见设计文档 §27）。
-2. **系统原生通知的横幅**：提醒到点/番茄轮次切换确实送进了 Windows 通知库（已验证），
-   但未打包程序还差一个带 AppUserModelID 的开始菜单快捷方式，横幅才会画出来；
-   那段 COM 注册在本机看不到效果，所以没提交。真机或打包安装后可解（§26）。
-3. **macOS / iOS 打包**：需要 Mac 与开发者账号，iOS 后置；darwin 产物未签名、未实测。
-4. **账号体系**：没有云端账号，个人中心与登录入口是占位；同步靠通道（飞书 / WebDAV / 本地文件夹）。
-5. **关掉应用期间不继续计时**：这是设计（恢复时最多补一个心跳周期），不是缺陷。
+1. **feishuBase carries no attachment bytes.** localdir / WebDAV / feishuDrive already move attachment bytes with sync (missing bytes are filled in after record merge, see `docs/architecture.md` §7), so switching machines no longer means "the image is only on the other device". Feishu Base has no binary object semantics, so it syncs metadata only. One archive is capped at 14 MB of raw bytes (base64 stays under Feishu's 20 MB `upload_all` limit); beyond that, use a backup file with "include attachments" checked (design doc §27).
+2. **Native notification banners.** Due reminders and pomodoro round switches do reach the Windows notification library (verified), but the packaged app still needs a Start-menu shortcut with an AppUserModelID for the banner to draw. That COM registration had no visible effect on this machine, so it was not committed. It can be resolved on a real machine or after packaged installation (§26).
+3. **macOS / iOS packaging** needs a Mac and a developer account; iOS is deferred. Darwin artifacts are unsigned and untested.
+4. **No account system.** The account center and login entry are placeholders; sync works through channels (Feishu / WebDAV / local folder).
+5. **Timers do not keep running while the app is closed.** This is by design (at most one heartbeat period is caught up on resume), not a defect.
 
-已收口（2026-11-08）：法定节假日与调休（内置 2025–2027，§25）、系统原生通知的投递（§26）、
-口令加密的备份与恢复（§27）、专注的跨设备互斥（§28）、附件字节同步（三条文件型通道，§7）。细节都在
-[docs/design-reference.md](docs/design-reference.md)。
+Already closed (2026-11-08): statutory holidays and makeup work (built-in 2025–2027, §25), native notification delivery (§26), password-encrypted backup and restore (§27), cross-device focus exclusion (§28), attachment byte sync across the three file-based channels (§7). Details are in [docs/design-reference.md](docs/design-reference.md).
 
-## 许可证
+## Community
 
-[GNU GPLv3](LICENSE)（见仓库根 `LICENSE`）。你可以自由运行、研究、修改和再分发本程序；
-**任何分发修改版的义务是同样的**：必须公开对应的完整源代码并保留本许可证（GPL-3 的 copyleft），
-网络服务除外（若想要 AGPL 那种「云服务也得开源」的强度，另行说明）。
+Questions, bug reports and feature ideas are welcome through [GitHub Issues](https://github.com/jameingh/plan-for-do/issues). If you want to change the app, open an issue first so we can agree on the approach — most modules have detailed interaction specs in `docs/design-reference.md`, and UI changes must pass the CDP self-checks described above.
 
-依赖的许可证与本项目的 GPL-3 兼容：Wails v3 与 `modernc.org/sqlite` 为 MPL-2.0（文件级 copyleft，可与 GPL 组合作品共存），
-React/Vite 等为 MIT。各依赖保留各自的许可证文件。
+If planfordo is useful to you, a star helps other people find it.
+
+## License
+
+[GNU GPLv3](LICENSE). You may run, study, modify and redistribute the program freely; **any distribution of a modified version carries the same obligation**: publish the corresponding complete source and keep this license (GPL-3 copyleft), except for network use.
+
+Dependencies are compatible with GPL-3: Wails v3 and `modernc.org/sqlite` are MPL-2.0 (file-level copyleft, coexists with GPL in a combined work), and React/Vite are MIT. Each dependency keeps its own license file.
