@@ -97,7 +97,7 @@ func main() {
 	// 不做任意 URL 拼接，免得变成「启动参数能加载任何页面」的口子。
 	startURL := "/"
 	switch os.Getenv("PLANDO_START_TAB") {
-	case "lists", "views", "habits", "focus", "memos", "settings":
+	case "lists", "listStats", "views", "habits", "focus", "memos", "settings":
 		startURL = "/?tab=" + os.Getenv("PLANDO_START_TAB")
 	}
 

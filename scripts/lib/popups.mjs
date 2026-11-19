@@ -158,6 +158,15 @@ export const CASES = [
     popup: ".fc-task-menu", anchor: ".fc-task-on", anchorMode: "element", optional: true,
   },
 
+  // ——— 清单统计 ———
+  // 统计页不在左栏里：先切「清单」模块，再点顶栏「统计」进去（prep 走 CDP，导航不是被测对象）。
+  {
+    id: "liststat-dimension", tab: "清单", label: "清单统计 · 打卡分布维度下拉",
+    prep: [{ css: ".stats-entry", text: "统计" }],
+    steps: [{ css: ".ls-dim-btn" }],
+    popup: ".ls-dim-pop", anchor: ".ls-dim-btn", anchorMode: "element",
+  },
+
   // ——— 账户 ———
   {
     id: "avatar-menu", tab: "清单", label: "左上角 · 头像菜单",

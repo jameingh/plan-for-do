@@ -70,7 +70,9 @@ console.log("\n=== 头像菜单 ===");
 await clickAt(".rail-avatar", null, 400);
 let m = await menu();
 check("点头像弹出菜单，两项＝个人中心 / 退出登录", m && m.items.join(",") === "个人中心,退出登录", JSON.stringify(m));
-check("菜单贴在左栏右侧、宽 150（参考站 .items 同形，位置让开头像）", m && m.left > 64 && m.top > 30 && m.w === 150, JSON.stringify(m));
+// 菜单由 CSS 定在 .avatar-menu { left:12px; top:44px; width:150px }——有意让开头像、
+// 贴在左栏内而非右缘（global.css 有注释）。这里按设计校验落位，别再要求 left>64。
+check("菜单落在头像下方、宽 150（left≈12，有意让开头像）", m && m.left >= 10 && m.left <= 20 && m.top >= 36 && m.top <= 60 && m.w === 150, JSON.stringify(m));
 // 点遮罩任意处关闭（参考站就是 curtain-transparent 全屏关）
 await clickXY(520, 480, 350);
 check("点屏幕任意处菜单关闭", (await menu()) === null);

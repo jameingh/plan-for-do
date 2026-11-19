@@ -1893,3 +1893,101 @@ iframe.edit-iframe { display: block; width: 100%; height: 100%; border: 0;
 .fc-settle-note { width: min(420px, 80vw); min-height: 88px; border: 1px solid var(--line); border-radius: var(--r-ctl);
   padding: 10px 12px; font-size: 13px; font-family: var(--font); background: var(--surface); color: var(--text); }
 .fc-settle-foot { position: absolute; left: var(--s5); right: var(--s5); bottom: var(--s4); display: flex; align-items: center; gap: var(--s2); }
+
+/* —— 清单统计（日 / 周 / 月）—— */
+/* 清单页顶栏入口与统计页返回键：沿用 12px 次要动作的字号，不抢「筛选」 */
+.stats-entry, .stats-back { display: inline-flex; align-items: center; gap: 4px; border: 0; background: none;
+  color: var(--text-2); font-size: 12.5px; padding: 3px 6px; border-radius: 6px; white-space: nowrap;
+  transition: background var(--t-micro) var(--ease), color var(--t-micro) var(--ease); }
+.stats-entry:hover, .stats-back:hover { background: var(--brand-shallow); color: var(--brand); }
+.stats-back { color: var(--text-3); }
+
+.ls-page { overflow: hidden; }
+.ls-datebar { flex: none; height: var(--h-bar); display: flex; align-items: center; gap: var(--s2);
+  padding: 0 var(--content-pad-x); border-bottom: 1px solid var(--line); background: var(--surface); }
+.ls-datebar .spacer { flex: 1; }
+.ls-date-title { min-width: 108px; text-align: center; font-size: 15px; font-weight: 700; color: var(--text); }
+.ls-range { font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.ls-loading { padding: 40px; text-align: center; color: var(--text-3); font-size: 13px; }
+.ls-body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--s4) var(--content-pad-x) 28px;
+  display: flex; flex-direction: column; gap: var(--s4); }
+
+.ls-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card);
+  padding: var(--s4); box-shadow: var(--shadow-1); }
+.ls-card-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); margin-bottom: var(--s4); }
+.ls-card-head b { font-size: 13.5px; font-weight: 700; color: var(--text); }
+.ls-empty { display: grid; place-items: center; min-height: 180px; color: var(--text-3); font-size: 13px; }
+
+/* 数据总览：2×2，上排成功/失败，下排未打卡/打卡率 */
+.ls-overview-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--s3); }
+.ls-metric { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+  min-height: 82px; border-radius: var(--r-ctl); background: var(--surface-2); border: 1px solid var(--line); }
+.ls-metric b { font-size: 24px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.ls-metric span { font-size: 12px; color: var(--text-3); }
+.ls-metric.is-success b { color: var(--brand); }
+.ls-metric.is-fail b { color: var(--alert); }
+.ls-metric.is-pending b { color: var(--text-2); }
+.ls-metric.is-rate b { color: var(--todo-fill); }
+
+/* 趋势 + 分布并排；窄窗口自动堆起来 */
+.ls-row2 { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(280px, 1fr); gap: var(--s4); }
+@media (max-width: 1100px) { .ls-row2 { grid-template-columns: 1fr; } }
+
+.ls-seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--r-ctl); overflow: hidden; flex: none; }
+.ls-seg button { border: 0; background: var(--surface); color: var(--text-3); font-size: 11.5px;
+  padding: 4px 10px; transition: background var(--t-micro) var(--ease), color var(--t-micro) var(--ease); }
+.ls-seg button + button { border-left: 1px solid var(--line); }
+.ls-seg button:hover { color: var(--brand); }
+.ls-seg button.is-active { background: var(--brand-deep); color: var(--brand); font-weight: 500; }
+
+.ls-chart { display: flex; gap: 6px; }
+.ls-chart-y { position: relative; flex: none; width: 26px; height: 140px; }
+.ls-chart-y span { position: absolute; right: 2px; transform: translateY(-50%); font-size: 10.5px;
+  color: var(--text-3); font-variant-numeric: tabular-nums; }
+.ls-chart-y span:nth-child(1) { top: 0; }
+.ls-chart-y span:nth-child(2) { top: 25%; }
+.ls-chart-y span:nth-child(3) { top: 50%; }
+.ls-chart-y span:nth-child(4) { top: 75%; }
+.ls-chart-y span:nth-child(5) { top: 100%; }
+.ls-chart-main { flex: 1; min-width: 0; }
+.ls-chart-plot { position: relative; height: 140px; }
+.ls-gridline { position: absolute; left: 0; right: 0; height: 1px; background: var(--line); pointer-events: none; }
+.ls-chart-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.ls-bar { fill: var(--brand); opacity: .85; }
+.ls-line { fill: none; stroke: var(--brand); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.ls-dot { fill: var(--surface); stroke: var(--brand); stroke-width: 2; }
+.ls-chart-x { display: flex; margin-top: 6px; }
+.ls-chart-x span { flex: 1; min-width: 0; text-align: center; font-size: 10.5px; color: var(--text-3);
+  white-space: nowrap; overflow: hidden; }
+
+/* 维度下拉：fixed 定位，按触发器 rect 落位（可滚动内容区裁不到它） */
+.ls-dim-btn { display: inline-flex; align-items: center; gap: 3px; border: 1px solid var(--line); background: var(--surface);
+  color: var(--text-2); border-radius: var(--r-ctl); padding: 3px 8px; font-size: 11.5px; white-space: nowrap; }
+.ls-dim-btn:hover { border-color: var(--brand); color: var(--brand); }
+.ls-dim-pop { position: fixed; z-index: 150; min-width: 108px; padding: 4px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--r-ctl); box-shadow: var(--shadow-2);
+  display: flex; flex-direction: column; gap: 2px; }
+.ls-dim-pop button { border: 0; background: none; text-align: left; padding: 6px 8px; border-radius: 5px;
+  font-size: 12px; color: var(--text-2); white-space: nowrap; }
+.ls-dim-pop button:hover { background: var(--brand-shallow); color: var(--brand); }
+.ls-dim-pop button.is-active { background: var(--brand-deep); color: var(--brand); font-weight: 500; }
+
+.ls-pie-wrap { display: flex; align-items: center; justify-content: center; gap: var(--s4); min-height: 180px; }
+.ls-pie { width: 154px; height: 154px; flex: none; }
+.ls-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px;
+  max-height: 190px; overflow-y: auto; min-width: 0; }
+.ls-legend li { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-2); }
+.ls-legend li > i { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.ls-legend-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ls-legend-val { margin-left: auto; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+/* 自律指数三角雷达 */
+.ls-index { display: flex; flex-direction: column; }
+.ls-radar { display: flex; flex-direction: column; align-items: center; }
+.ls-radar svg { width: 268px; max-width: 100%; height: auto; }
+.ls-radar-grid { fill: none; stroke: var(--line); stroke-width: 1; }
+.ls-radar-axis { stroke: var(--line-strong); stroke-width: 1; }
+.ls-radar-data { fill: color-mix(in srgb, var(--brand) 20%, transparent); stroke: var(--brand); stroke-width: 2; stroke-linejoin: round; }
+.ls-radar-dot { fill: var(--brand); stroke: var(--surface); stroke-width: 1.5; }
+.ls-radar-label { fill: var(--text-2); font-size: 12px; font-family: var(--font); }
+.ls-radar-note { margin: -4px 0 0; font-size: 11.5px; color: var(--text-3); }

@@ -7,7 +7,7 @@ import { useSyncExternalStore } from "react";
 import { api } from "../api/client";
 import type { BootInfo, Day, Occurrence, ReminderFire, Settings, ViewConfig } from "../api/types";
 
-export type Page = "lists" | "views" | "habits" | "focus" | "memos" | "settings" | "account";
+export type Page = "lists" | "listStats" | "views" | "habits" | "focus" | "memos" | "settings" | "account";
 
 export interface Toast {
   id: number;
@@ -54,7 +54,7 @@ let seq = 0;
  */
 function initialPage(): Page {
   const t = new URLSearchParams(window.location.search).get("tab");
-  return t === "lists" || t === "views" || t === "habits" || t === "focus" || t === "memos" || t === "settings" ? t : "lists";
+  return t === "lists" || t === "listStats" || t === "views" || t === "habits" || t === "focus" || t === "memos" || t === "settings" ? t : "lists";
 }
 
 let state: AppState = {

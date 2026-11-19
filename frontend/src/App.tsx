@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import { AccountCenter } from "./components/AccountCenter";
 import { HabitsPage } from "./components/HabitsPage";
 import { ListsPage } from "./components/ListsPage";
+import { ListStatsPage } from "./components/ListStatsPage";
 import { MemosPage } from "./components/MemosPage";
 import { FocusPage } from "./components/FocusPage";
 import { SettingsPage } from "./components/SettingsPage";
@@ -57,6 +58,7 @@ export default function App() {
 
       <div className="app-main">
         {s.page === "lists" && <ListsPage />}
+        {s.page === "listStats" && <ListStatsPage />}
         {s.page === "views" && <ViewsPage />}
         {s.page === "habits" && <HabitsPage />}
         {s.page === "focus" && <FocusPage />}

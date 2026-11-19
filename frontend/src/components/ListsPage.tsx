@@ -13,7 +13,7 @@ import type { Category, Child, Label, ListView, ListViewRequest, Occurrence, PlL
 import { isResolved } from "../api/types";
 import { addDays, formatClockCN, formatDayCN, relativeDayCN, todayLocal } from "../lib/day";
 import { itemWhenText } from "../lib/labels";
-import { bumpRevision, markSaved, selectOccurrence, setFilters, toast, toastErr, toggleGroup, useApp } from "../store/appStore";
+import { bumpRevision, markSaved, selectOccurrence, setFilters, setPage, toast, toastErr, toggleGroup, useApp } from "../store/appStore";
 import { CategoryManager } from "./CategoryManager";
 import { ItemDetail, type CreateSpec } from "./ItemDetail";
 import { FilterButton, GroupTabs, TopBar } from "./chrome";
@@ -228,7 +228,10 @@ export function ListsPage() {
     <>
       <TopBar
         tabs={<GroupTabs value={groupBy} onChange={(g) => setFilters({ groupBy: g })} />}
-        extra={<FilterButton nav={nav} onOpenCategories={() => setShowCatMgr(true)} />}
+        extra={<>
+          <button className="stats-entry" title="查看清单统计" onClick={() => setPage("listStats")}><I n="checkSquare" size={14} />统计</button>
+          <FilterButton nav={nav} onOpenCategories={() => setShowCatMgr(true)} />
+        </>}
       />
 
       <main className="content" ref={centerRef}>

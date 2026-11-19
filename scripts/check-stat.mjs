@@ -3,9 +3,10 @@
 //   先跑 bash scripts/verify-restart.sh 9256 habits && bash scripts/seed-stat.sh
 //   ⚠️ 必须紧接 restart+seed 跑：种子是按「相对今天」追加记录的，
 //      同一个库跑两遍会灌出重复习惯，条数类断言会误报。
-// 种子用的是「相对今天」的日期，所以断言只依赖今天星期几，不写死日历。
+// 种子用的是「相对今天」的日期，断言也必须跟着今天星期几走：种子里有「每周二跑步」，
+// 周二跑 CI 时应打 3 个（33%），其余日子 2 个（50%）——写死 50% 曾在周二挂掉 CI。
 import { DatabaseSync } from "node:sqlite";
-import { addMonths, monthCN, today, weekdayMon } from "./lib/d.mjs";
+import { addMonths, diffDays, monthCN, today, weekdayMon } from "./lib/d.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -63,6 +64,26 @@ db.close();
 const amountOf = {};
 for (const c of clocks) amountOf[`${c.habitId}:${c.day}`] = (amountOf[`${c.habitId}:${c.day}`] ?? 0) + (c.amount || 1);
 
+// 今天的「应打 / 打满」真值，口径对齐内核 habit_stat.go：
+// 应打 = freq 命中今天 && 今天 >= startDay；打满 = 应打 && 当日量 >= target（多次按 dailyTarget）。
+// 种子固定四种排期（daily / weekly:1,3,5 / weekly:2），这里只覆盖种子用到的 kind 1、2；
+// 其他 kind 用通用写法列出，免得以后换种子时静默算错。
+const dayOfWeek = weekdayMon(today());
+const isDue = (h) => {
+  if (today() < h.startDay) return false;
+  const f = h.freq || {};
+  if (f.kind === 1) return true;                            // 每天
+  if (f.kind === 2) return (f.weekdays || []).includes(dayOfWeek); // 固定周几
+  if (f.kind === 3) return (f.monthDays || []).includes(Number(today().slice(8)));
+  if (f.kind === 4) return diffDays(h.startDay, today()) % (f.everyN || 1) === 0;
+  if (f.kind === 5 || f.kind === 6) return true;            // 配额型：周期内每天可打
+  return false;
+};
+const targetOf = (h) => h.mode === 2 ? (h.dailyTarget || 1) : 1;
+const dueToday = habits.filter(isDue);
+const doneToday = dueToday.filter((h) => (amountOf[`${h.id}:${today()}`] || 0) >= targetOf(h));
+const expectedPct = dueToday.length ? Math.round(doneToday.length / dueToday.length * 100) : null;
+
 console.log("\n=== 习惯统计：入口 ===");
 await click(".gtab", "习惯统计", 0, 700);
 check("习惯页顶部两页签", (await num(".gtab")) === 2 && (await txt(".gtab.is-active")) === "习惯统计", await txt(".gtabs"));
@@ -80,8 +101,9 @@ const zaoshui = rows.find((r) => r.n === "早睡"), heshui = rows.find((r) => r.
 check("每天一次写「1/1次」", zaoshui?.p === "1/1次", JSON.stringify(zaoshui));
 check("每天多次按量+单位写「3/8杯」", heshui?.p === "3/8杯", JSON.stringify(heshui));
 check("没排期的习惯标「休息」而不是 0/1次", rows.filter((r) => r.rest).every((r) => r.p === "休息"), JSON.stringify(rows.filter((r) => r.rest)));
-check("完美打卡环 = 打满/应打", (await txt(".hs-ring span")) === "50%", await txt(".hs-ring span"));
-check("环下方写清今天该打几个", (await txt(".hs-perfect .hs-sub")) === "今天该打 2 个，已打满 1 个", await txt(".hs-perfect .hs-sub"));
+check("完美打卡环 = 打满/应打（内核真值）", (await txt(".hs-ring span")) === `${expectedPct}%`, `${await txt(".hs-ring span")} vs ${expectedPct}%`);
+check("环下方写清今天该打几个", (await txt(".hs-perfect .hs-sub")) === `今天该打 ${dueToday.length} 个，已打满 ${doneToday.length} 个`,
+  `${await txt(".hs-perfect .hs-sub")} vs 今天该打 ${dueToday.length} 个，已打满 ${doneToday.length} 个`);
 check("右箭头不可点（不能看未来）", (await arrow(1)) === true);
 check("左箭头可点", (await arrow(0)) === false);
 const dayTitle = await title();

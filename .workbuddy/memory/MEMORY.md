@@ -45,13 +45,26 @@
   必须用 `bash scripts/verify-restart.sh <port> <tab>` 起实例——它会删旧数据目录、等内核把
   `planfordo.db` 落盘再交活。手动起实例至少要：CDP 就绪 + sleep 3s + 等 db 文件出现。
 - **已知既有失败（不是回归，别去"修"）**：
-  - `check-account.mjs`「菜单贴在左栏右侧」期望 `left > 64`、实际 `left: 12`
-    —— CSS 里 `left: 12px` 是**有意偏离参考站**的选择（`global.css` 注释写明），脚本没跟上；
   - `check-focus.mjs`「种子三条今天的事项」「种子习惯」为空 → 缺清单/习惯模块的种子数据；
   - `check-view.mjs` 找不到 `.v-type` → 同上，缺种子数据。
+  （`check-account.mjs` 菜单落位断言已于 2026-11-19 修正，不再是既有失败，见下节。）
 - **判定因果的标准做法**：`git stash push <改动文件>` → 重建前端 → 跑同一脚本 → 对比失败项。
   失败项完全相同 = 既有问题，与本次改动无关；本次改动相关的自检全过即可交付。
   （2026-11-10 用这招排除了 check-mask 的假失败和 check-account/check-focus/check-view 的既有失败。）
+
+## 自检期望值必须动态算，别写死星期/数量（2026-11-19 修 CI 确立）
+
+- CI run #20（commit 8a6d401）失败两项，都是**脚本没跟上当前设计/种子**，不是功能回归：
+  - `check-stat.mjs` 写死「今天该打 2 个 / 50%」，而种子里「跑步=每周二」，CI 周二跑
+    实际 `3 个 / 33%`。已改为按内核真值动态算：读 DB 的 `habits.freq`（kind 1~6 全覆盖）
+    + `clocks` 当日量 + `dailyTarget`，口径对齐 `internal/core/service/habit_stat.go`
+    的 due 判定（freq 命中 && `today>=startDay`；打满 = due && `amt>=target`）。
+  - `check-account.mjs` 写死 `left>64`，而 `.avatar-menu` 有意 `left:12px` 让开头像。
+    已改为校验 `left∈[10,20] / top∈[36,60] / w===150`。
+- **写死期望的自检只在特定日子通过**：本地周四跑全绿、CI 周二跑就挂，且本地复现不到。
+  凡涉及「相对今天」的断言，一律从种子数据 + 今天日期算出来，不要写死数字。
+- 验证手法：真机跑 `verify-restart.sh + seed + check-*.mjs` 之外，还要**构造边界分支**
+  （如把隔离库里跑步 freq 改到今天，模拟「应打 3 个」），确认动态断言在另一分支也对。
 
 ## 弹层「定位 + 不溢出」是必测两项（用户 2026-11-09 定）- 判据与实现在 `scripts/lib/geom.mjs`（`probeExpr` 量几何、`judgePopup` 判定）；
   弹层清单在 `scripts/lib/popups.mjs`（所有模块的触发器 + 弹层 + 锚点）。
@@ -106,3 +119,14 @@
   `BucketChannel`），首轮或异常永远能退回全量重推；不能让增量替换全量。
 - 在此之前值得做的两个小优化（按性价比）：① gzip 快照（需处理旧客户端兼容）；
   ② blob 内容寻址分片（解决 14MB 上限、base64 膨胀、每轮重写整份归档、单附件 50MB 无法同步）。
+
+## 清单统计页（2026-11-17 新增）
+
+- 页面 `listStats`，从清单页顶栏「统计」进入；不在左栏模块里。深链 `?tab=listStats` 可用，
+  新增页面时记得同步 `main.go` 的 `PLANDO_START_TAB` 白名单和 `appStore.initialPage()`。
+- **不新增 Go 接口、不重生成 bindings**：一次 `CalendarView(showDone=true)` 取区间实例，
+  统计口径收在 `frontend/src/lib/listStat.ts`，UI 在 `ListStatsPage.tsx`。
+- 口径：打卡率=(成功+失败)/总数；日趋势按 `clockedAt` 本地小时每 4 小时一桶，
+  第 7 格（24 点）恒空；周/月按 `occurrence.day`；分布只数已打卡实例；
+  自律指数 = 掌控(打卡率)/高效(成功÷已打卡)/勤奋(日均打卡÷3，封顶 100)。
+- 改桶宽务必同步改索引守卫（4 小时桶是 0..5，写 `<5` 会静默吞掉晚上 8 点那桶）。
